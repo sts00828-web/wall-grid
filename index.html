@@ -153,6 +153,29 @@ header p { font-size: 0.75rem; color: #888; margin-top: 2px; }
   max-height: 200px; overflow-y: auto;
 }
 
+/* 描画ツールバー */
+.draw-toolbar {
+  background: #16213e; border-radius: 8px; padding: 8px 10px;
+  margin-bottom: 8px;
+}
+.tool-row {
+  display: flex; align-items: center; gap: 6px;
+  margin-bottom: 6px;
+}
+.tool-row:last-child { margin-bottom: 0; }
+.tool-btn {
+  width: 40px; height: 40px; border: 2px solid #333;
+  border-radius: 8px; background: #1a1a2e; font-size: 1.1rem;
+  cursor: pointer; display: flex; align-items: center; justify-content: center;
+  color: #eee;
+}
+.tool-btn.active { border-color: #e94560; background: #2a1a3e; }
+.color-btn {
+  width: 28px; height: 28px; border: 2px solid #555;
+  border-radius: 50%; cursor: pointer; padding: 0;
+}
+.color-btn.active { border-color: #fff; box-shadow: 0 0 6px rgba(255,255,255,0.5); }
+
 .toast {
   position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%);
   background: #4ecca3; color: #1a1a2e; padding: 10px 24px;
@@ -175,6 +198,7 @@ header p { font-size: 0.75rem; color: #888; margin-top: 2px; }
     <div class="step" data-step="1"></div>
     <div class="step" data-step="2"></div>
     <div class="step" data-step="3"></div>
+    <div class="step" data-step="4"></div>
   </div>
 
   <!-- Step 0: 写真アップロード -->
@@ -289,10 +313,58 @@ header p { font-size: 0.75rem; color: #888; margin-top: 2px; }
     <p style="font-size:0.75rem;color:#666;margin-top:6px;text-align:center">コピーしたプロンプトと画像をAIに貼り付けてください<br><span style="color:#4ecca3">※Gemini推奨（座標認識の精度が高い）</span></p>
     <div class="copy-area" id="promptArea" style="display:none"></div>
 
-    <div style="display:flex;gap:8px;margin-top:16px">
+    <button class="btn btn-success" id="toStep4" style="margin-top:12px;background:#f59e0b;color:#000">✏️ 課題を書き込む</button>
+
+    <div style="display:flex;gap:8px;margin-top:12px">
       <button class="btn btn-secondary" id="backTo2" style="flex:1;margin-top:0">戻って修正</button>
       <button class="btn btn-secondary" id="restart" style="flex:1;margin-top:0">最初から</button>
     </div>
+  </div>
+
+  <!-- Step 4: 手描き編集 -->
+  <div class="section" id="step4">
+    <p class="section-title">Step 5: 課題を書き込む</p>
+    <div class="instruction">
+      壁の画像に<strong>丸・線・テキスト</strong>を書き込めます。<br>
+      完成したら画像を保存してください。
+    </div>
+
+    <!-- ツールバー -->
+    <div class="draw-toolbar">
+      <div class="tool-row">
+        <button class="tool-btn active" data-tool="circle" title="丸">⭕</button>
+        <button class="tool-btn" data-tool="pen" title="ペン">✏️</button>
+        <button class="tool-btn" data-tool="line" title="直線">📏</button>
+        <button class="tool-btn" data-tool="text" title="テキスト">T</button>
+        <button class="tool-btn" data-tool="eraser" title="消しゴム">🗑️</button>
+      </div>
+      <div class="tool-row">
+        <span style="font-size:0.75rem;color:#888">色:</span>
+        <button class="color-btn active" data-color="#ff0000" style="background:#ff0000"></button>
+        <button class="color-btn" data-color="#00ff00" style="background:#00ff00"></button>
+        <button class="color-btn" data-color="#ffff00" style="background:#ffff00"></button>
+        <button class="color-btn" data-color="#00ffff" style="background:#00ffff"></button>
+        <button class="color-btn" data-color="#ff00ff" style="background:#ff00ff"></button>
+        <button class="color-btn" data-color="#ffffff" style="background:#ffffff"></button>
+        <span style="font-size:0.75rem;color:#888;margin-left:8px">太さ:</span>
+        <input type="range" id="drawSize" min="2" max="12" value="4" style="width:60px;vertical-align:middle">
+      </div>
+    </div>
+
+    <div class="canvas-wrapper" id="drawWrapper">
+      <canvas id="drawCanvas"></canvas>
+    </div>
+
+    <div style="display:flex;gap:8px;margin-top:12px">
+      <button class="btn btn-secondary" id="undoDraw" style="flex:1;margin-top:0">↩ 戻す</button>
+      <button class="btn btn-secondary" id="clearDraw" style="flex:1;margin-top:0">全消去</button>
+    </div>
+
+    <div style="display:flex;gap:8px;margin-top:8px">
+      <button class="btn btn-success" id="downloadDraw" style="flex:1;margin-top:0">📥 画像を保存</button>
+      <button class="btn btn-success" id="shareDraw" style="flex:1;margin-top:0;background:#3b82f6">📤 共有</button>
+    </div>
+    <button class="btn btn-secondary" id="backTo3" style="margin-top:8px">戻る</button>
   </div>
 </div>
 
@@ -332,6 +404,7 @@ function goToStep(n) {
   });
   if (n === 1) drawWallCanvas();
   if (n === 3) generateResult();
+  if (n === 4) initDrawCanvas();
 }
 
 // ===== Step 0: Upload =====
@@ -733,6 +806,7 @@ document.getElementById('copyPrompt').addEventListener('click', () => {
   });
 });
 
+document.getElementById('toStep4').addEventListener('click', () => goToStep(4));
 document.getElementById('backTo2').addEventListener('click', () => goToStep(2));
 document.getElementById('restart').addEventListener('click', () => {
   state.image = null;
@@ -749,6 +823,241 @@ function showToast(msg) {
   t.classList.add('show');
   setTimeout(() => t.classList.remove('show'), 2000);
 }
+
+// ===== Step 4: Draw on grid =====
+const drawCanvas = document.getElementById('drawCanvas');
+const dctx = drawCanvas.getContext('2d');
+let drawTool = 'circle';
+let drawColor = '#ff0000';
+let drawSize = 4;
+let drawHistory = [];     // snapshots for undo
+let isDrawing = false;
+let drawStart = null;     // for line/circle start point
+let baseImage = null;     // grid image as base
+
+function initDrawCanvas() {
+  // Copy grid image (without legend) onto draw canvas
+  const img = state.image;
+  const [c0, c1] = state.corners;
+
+  // Use full original image width (no legend)
+  drawCanvas.width = img.width;
+  drawCanvas.height = img.height;
+
+  // Draw the result canvas content (just the image part, no legend)
+  dctx.drawImage(resultCanvas, 0, 0, img.width, img.height, 0, 0, img.width, img.height);
+
+  // Save base
+  baseImage = dctx.getImageData(0, 0, drawCanvas.width, drawCanvas.height);
+  drawHistory = [drawCanvas.toDataURL()];
+
+  // Scale canvas display
+  const wrapper = document.getElementById('drawWrapper');
+  drawCanvas.style.width = '100%';
+  drawCanvas.style.height = 'auto';
+}
+
+function getDrawPos(e) {
+  const rect = drawCanvas.getBoundingClientRect();
+  const scaleX = drawCanvas.width / rect.width;
+  const scaleY = drawCanvas.height / rect.height;
+  const touch = e.touches ? e.touches[0] : e;
+  return {
+    x: (touch.clientX - rect.left) * scaleX,
+    y: (touch.clientY - rect.top) * scaleY,
+  };
+}
+
+function saveDrawState() {
+  if (drawHistory.length > 30) drawHistory.shift();
+  drawHistory.push(drawCanvas.toDataURL());
+}
+
+// Tool selection
+document.querySelectorAll('.tool-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    drawTool = btn.dataset.tool;
+    if (drawTool === 'text') {
+      drawCanvas.style.cursor = 'text';
+    } else if (drawTool === 'eraser') {
+      drawCanvas.style.cursor = 'crosshair';
+    } else {
+      drawCanvas.style.cursor = 'crosshair';
+    }
+  });
+});
+
+// Color selection
+document.querySelectorAll('.color-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.color-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    drawColor = btn.dataset.color;
+  });
+});
+
+document.getElementById('drawSize').addEventListener('input', (e) => {
+  drawSize = parseInt(e.target.value);
+});
+
+// Drawing events
+function onDrawStart(e) {
+  e.preventDefault();
+  const pos = getDrawPos(e);
+  isDrawing = true;
+  drawStart = pos;
+
+  if (drawTool === 'pen' || drawTool === 'eraser') {
+    dctx.beginPath();
+    dctx.moveTo(pos.x, pos.y);
+  }
+}
+
+function onDrawMove(e) {
+  if (!isDrawing) return;
+  e.preventDefault();
+  const pos = getDrawPos(e);
+
+  if (drawTool === 'pen') {
+    dctx.strokeStyle = drawColor;
+    dctx.lineWidth = drawSize;
+    dctx.lineCap = 'round';
+    dctx.lineJoin = 'round';
+    dctx.lineTo(pos.x, pos.y);
+    dctx.stroke();
+  } else if (drawTool === 'eraser') {
+    // Restore base image in area
+    const r = drawSize * 3;
+    const sx = Math.max(0, Math.round(pos.x - r));
+    const sy = Math.max(0, Math.round(pos.y - r));
+    const sw = Math.min(drawCanvas.width - sx, r * 2);
+    const sh = Math.min(drawCanvas.height - sy, r * 2);
+    if (baseImage && sw > 0 && sh > 0) {
+      // Create temp canvas with base, copy region
+      const tmp = document.createElement('canvas');
+      tmp.width = drawCanvas.width;
+      tmp.height = drawCanvas.height;
+      const tctx = tmp.getContext('2d');
+      tctx.putImageData(baseImage, 0, 0);
+      const region = tctx.getImageData(sx, sy, sw, sh);
+      dctx.putImageData(region, sx, sy);
+    }
+  } else if (drawTool === 'circle' || drawTool === 'line') {
+    // Preview: restore last saved state and draw preview
+    const lastState = new Image();
+    lastState.src = drawHistory[drawHistory.length - 1];
+    // Simple approach: we'll draw final on end
+  }
+}
+
+function onDrawEnd(e) {
+  if (!isDrawing) return;
+  isDrawing = false;
+
+  const pos = e.changedTouches ? getDrawPos(e) :
+              (e.type === 'mouseup' ? getDrawPos(e) : drawStart);
+
+  if (drawTool === 'circle') {
+    const r = Math.max(15, Math.hypot(pos.x - drawStart.x, pos.y - drawStart.y));
+    dctx.beginPath();
+    dctx.arc(drawStart.x, drawStart.y, r, 0, Math.PI * 2);
+    dctx.strokeStyle = drawColor;
+    dctx.lineWidth = drawSize;
+    dctx.stroke();
+    saveDrawState();
+  } else if (drawTool === 'line') {
+    dctx.beginPath();
+    dctx.moveTo(drawStart.x, drawStart.y);
+    dctx.lineTo(pos.x, pos.y);
+    dctx.strokeStyle = drawColor;
+    dctx.lineWidth = drawSize;
+    dctx.lineCap = 'round';
+    dctx.stroke();
+    saveDrawState();
+  } else if (drawTool === 'pen' || drawTool === 'eraser') {
+    saveDrawState();
+  } else if (drawTool === 'text') {
+    const text = prompt('テキストを入力:');
+    if (text) {
+      const textSize = Math.max(16, drawSize * 5);
+      dctx.font = `bold ${textSize}px sans-serif`;
+      dctx.fillStyle = drawColor;
+      dctx.textAlign = 'center';
+      dctx.textBaseline = 'middle';
+      // Background
+      const tw = dctx.measureText(text).width;
+      dctx.fillStyle = 'rgba(0,0,0,0.6)';
+      dctx.fillRect(drawStart.x - tw/2 - 4, drawStart.y - textSize/2 - 2, tw + 8, textSize + 4);
+      dctx.fillStyle = drawColor;
+      dctx.fillText(text, drawStart.x, drawStart.y);
+      saveDrawState();
+    }
+  }
+  drawStart = null;
+}
+
+drawCanvas.addEventListener('mousedown', onDrawStart);
+drawCanvas.addEventListener('mousemove', onDrawMove);
+drawCanvas.addEventListener('mouseup', onDrawEnd);
+drawCanvas.addEventListener('touchstart', onDrawStart, { passive: false });
+drawCanvas.addEventListener('touchmove', onDrawMove, { passive: false });
+drawCanvas.addEventListener('touchend', onDrawEnd);
+
+// Undo
+document.getElementById('undoDraw').addEventListener('click', () => {
+  if (drawHistory.length <= 1) return;
+  drawHistory.pop();
+  const img = new Image();
+  img.onload = () => {
+    dctx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
+    dctx.drawImage(img, 0, 0);
+  };
+  img.src = drawHistory[drawHistory.length - 1];
+});
+
+// Clear all drawings
+document.getElementById('clearDraw').addEventListener('click', () => {
+  if (!baseImage) return;
+  dctx.putImageData(baseImage, 0, 0);
+  drawHistory = [drawCanvas.toDataURL()];
+  showToast('書き込みを全消去しました');
+});
+
+// Download drawn image
+document.getElementById('downloadDraw').addEventListener('click', () => {
+  drawCanvas.toBlob(blob => {
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.download = 'wall-grid-route.png';
+    link.href = url;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+    showToast('課題画像を保存しました');
+  }, 'image/png');
+});
+
+// Share drawn image
+document.getElementById('shareDraw').addEventListener('click', async () => {
+  try {
+    const blob = await new Promise(r => drawCanvas.toBlob(r, 'image/png'));
+    const file = new File([blob], 'wall-grid-route.png', { type: 'image/png' });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({ title: 'Wall Grid 課題', files: [file] });
+    } else {
+      const url = URL.createObjectURL(blob);
+      window.open(url, '_blank');
+      showToast('長押しで画像を保存してください');
+    }
+  } catch (e) {
+    if (e.name !== 'AbortError') showToast('共有に失敗しました');
+  }
+});
+
+document.getElementById('backTo3').addEventListener('click', () => goToStep(3));
 
 // PWA
 if ('serviceWorker' in navigator) {
