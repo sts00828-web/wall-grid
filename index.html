@@ -278,11 +278,21 @@ header p { font-size: 0.75rem; color: #888; margin-top: 2px; }
       <canvas id="resultCanvas"></canvas>
     </div>
     <div class="info-overlay" id="infoOverlay"></div>
-    <button class="btn btn-success" id="downloadBtn">画像をダウンロード</button>
-    <button class="btn btn-primary" id="copyPrompt" style="margin-top:8px">AIプロンプトをコピー</button>
+
+    <div style="display:flex;gap:8px;margin-top:12px">
+      <button class="btn btn-success" id="downloadBtn" style="flex:1;margin-top:0">📥 画像を保存</button>
+      <button class="btn btn-success" id="shareBtn" style="flex:1;margin-top:0;background:#3b82f6">📤 共有</button>
+    </div>
+
+    <p style="font-size:0.85rem;color:#aaa;margin:16px 0 8px;border-left:3px solid #4ecca3;padding-left:8px">AIで課題を作る</p>
+    <button class="btn btn-primary" id="copyPrompt">📋 AIプロンプトをコピー</button>
+    <p style="font-size:0.75rem;color:#666;margin-top:6px;text-align:center">コピーしたプロンプトと画像をClaude/ChatGPTに貼り付けてください</p>
     <div class="copy-area" id="promptArea" style="display:none"></div>
-    <button class="btn btn-secondary" id="backTo2" style="margin-top:8px">戻って修正</button>
-    <button class="btn btn-secondary" id="restart" style="margin-top:8px">最初からやり直す</button>
+
+    <div style="display:flex;gap:8px;margin-top:16px">
+      <button class="btn btn-secondary" id="backTo2" style="flex:1;margin-top:0">戻って修正</button>
+      <button class="btn btn-secondary" id="restart" style="flex:1;margin-top:0">最初から</button>
+    </div>
   </div>
 </div>
 
@@ -621,13 +631,42 @@ function generateResult() {
   infoEl.innerHTML = infoHTML || '<span class="label">壁情報が未入力です</span>';
 }
 
-// Download
+// Download (iOS/Android対応)
 document.getElementById('downloadBtn').addEventListener('click', () => {
-  const link = document.createElement('a');
-  link.download = 'wall-grid.png';
-  link.href = resultCanvas.toDataURL('image/png');
-  link.click();
-  showToast('画像を保存しました');
+  resultCanvas.toBlob(blob => {
+    // iOS Safari対応: blobをURLに変換して新タブで開く
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.download = 'wall-grid.png';
+    link.href = url;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+    showToast('画像を保存しました（長押しで保存も可）');
+  }, 'image/png');
+});
+
+// Share (Web Share API)
+document.getElementById('shareBtn').addEventListener('click', async () => {
+  try {
+    const blob = await new Promise(r => resultCanvas.toBlob(r, 'image/png'));
+    const file = new File([blob], 'wall-grid.png', { type: 'image/png' });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({
+        title: 'Wall Grid',
+        text: 'クライミング壁のグリッド画像',
+        files: [file],
+      });
+    } else {
+      // Fallback: 新しいタブで画像を表示
+      const url = URL.createObjectURL(blob);
+      window.open(url, '_blank');
+      showToast('長押しで画像を保存してください');
+    }
+  } catch (e) {
+    if (e.name !== 'AbortError') showToast('共有に失敗しました');
+  }
 });
 
 // Copy AI prompt
@@ -636,9 +675,12 @@ document.getElementById('copyPrompt').addEventListener('click', () => {
   const rows = state.gridRows;
   const colLabels = 'ABCDEFGHIJKLMNOP'.slice(0, cols);
 
-  let prompt = `以下のクライミングウォールのグリッド画像を見て、課題を作ってください。\n\n`;
+  let prompt = '';
+  prompt += `あなたはクライミングの課題（ルート）セッターです。\n`;
+  prompt += `添付のグリッド付き壁写真を見て、対話しながら課題を作ってください。\n\n`;
+
   prompt += `【壁情報】\n`;
-  prompt += `- グリッド: ${cols}列(A-${colLabels[cols-1]}) × ${rows}行(1-${rows})\n`;
+  prompt += `- グリッド: ${cols}列(A-${colLabels[cols-1]}) × ${rows}行(1-${rows})、1が上・${rows}が下\n`;
   if (state.wallWidth && state.wallHeight) {
     const cw = (state.wallWidth / cols).toFixed(2);
     const ch = (state.wallHeight / rows).toFixed(2);
@@ -648,6 +690,7 @@ document.getElementById('copyPrompt').addEventListener('click', () => {
   if (state.angles.length > 0) {
     prompt += `- 傾斜: ${state.angles.map(a => a + '度').join(', ')}（90度=垂壁、90度超=かぶり）\n`;
   }
+
   prompt += `\n【クライマー情報】\n`;
   if (state.climberHeight) prompt += `- 身長: ${state.climberHeight}cm\n`;
   if (state.climberReach) prompt += `- リーチ: ${state.climberReach}cm\n`;
@@ -656,11 +699,25 @@ document.getElementById('copyPrompt').addEventListener('click', () => {
     prompt += `- リーチは約${reachInCells}マス分\n`;
   }
   if (state.grade) prompt += `- 希望グレード: ${state.grade}\n`;
-  prompt += `\n【指示】\n`;
-  prompt += `1. この画像のグリッド座標（例: A1, F8）と色でホールドを指定して課題を作ってください。\n`;
-  prompt += `2. 使いたいホールドを提案してください。私がそのホールドの持ち方（ガバ/カチ/スローパー等）を教えます。\n`;
-  prompt += `3. リーチ内で届く距離のムーブにしてください。\n`;
-  prompt += `4. 足は自由 or 限定かも提案してください。\n`;
+
+  prompt += `\n【課題の作り方（重要）】\n`;
+  prompt += `以下の手順で対話しながら課題を作ってください：\n\n`;
+  prompt += `1. まず画像を見て、使いたいホールドの候補を5〜8個選び、\n`;
+  prompt += `   グリッド座標と色で提示してください。\n`;
+  prompt += `   例: 「F8の緑の大きなホールド」「D4の黄色いホールド」\n\n`;
+  prompt += `2. 私がそれぞれのホールドについて以下を回答します：\n`;
+  prompt += `   - 持ち方（ガバ/カチ/スローパー/ピンチ/アンダー等）\n`;
+  prompt += `   - 向き（右手向き/左手向き/どちらでも）\n`;
+  prompt += `   - 足として使えるか\n`;
+  prompt += `   - その他の特徴（悪い、持てない、等）\n\n`;
+  prompt += `3. 回答を踏まえて課題を組み立ててください：\n`;
+  prompt += `   - スタート（両手）→ 各手順 → ゴール を明記\n`;
+  prompt += `   - 各ムーブで右手/左手を指定\n`;
+  prompt += `   - 足自由 or 足限定かを提案\n`;
+  prompt += `   - 核心（最も難しいムーブ）を示す\n`;
+  prompt += `   - リーチ内で届く距離にする\n\n`;
+  prompt += `4. 私が「ここ届かない」「このホールド違う」と言ったら修正してください。\n\n`;
+  prompt += `まず、画像を見てホールドの候補を選んでください。\n`;
 
   const promptArea = document.getElementById('promptArea');
   promptArea.textContent = prompt;
@@ -669,7 +726,7 @@ document.getElementById('copyPrompt').addEventListener('click', () => {
   navigator.clipboard.writeText(prompt).then(() => {
     showToast('プロンプトをコピーしました');
   }).catch(() => {
-    showToast('長押しでコピーしてください');
+    showToast('テキストを長押しでコピーしてください');
   });
 });
 
