@@ -176,6 +176,52 @@ header p { font-size: 0.75rem; color: #888; margin-top: 2px; }
 }
 .color-btn.active { border-color: #fff; box-shadow: 0 0 6px rgba(255,255,255,0.5); }
 
+/* 描画モードトグル */
+.draw-mode-toggle {
+  display: flex; align-items: center; gap: 8px;
+  background: #16213e; border-radius: 8px; padding: 10px 14px;
+  margin-bottom: 8px;
+}
+.draw-mode-toggle .toggle-switch {
+  position: relative; width: 52px; height: 28px;
+  background: #333; border-radius: 14px; cursor: pointer;
+  transition: background 0.3s; flex-shrink: 0;
+}
+.draw-mode-toggle .toggle-switch.on { background: #e94560; }
+.draw-mode-toggle .toggle-switch .knob {
+  position: absolute; top: 3px; left: 3px;
+  width: 22px; height: 22px; background: #fff;
+  border-radius: 50%; transition: left 0.3s;
+}
+.draw-mode-toggle .toggle-switch.on .knob { left: 27px; }
+.draw-mode-label { font-size: 0.85rem; }
+.draw-mode-hint { font-size: 0.7rem; color: #666; }
+
+/* ズームコントロール */
+.zoom-controls {
+  display: flex; align-items: center; gap: 8px;
+  margin-bottom: 8px;
+}
+.zoom-btn {
+  width: 40px; height: 40px; border: 1px solid #444;
+  border-radius: 8px; background: #16213e; color: #eee;
+  font-size: 1.2rem; cursor: pointer; display: flex;
+  align-items: center; justify-content: center;
+}
+.zoom-btn:active { background: #2a2a4e; }
+.zoom-level { font-size: 0.85rem; color: #aaa; min-width: 50px; text-align: center; }
+
+/* ズーム可能キャンバスコンテナ */
+.draw-scroll-container {
+  overflow: auto; max-height: 70vh;
+  border: 2px solid #333; border-radius: 8px;
+  background: #111; -webkit-overflow-scrolling: touch;
+}
+.draw-scroll-container.draw-active { border-color: #e94560; }
+.draw-inner {
+  transform-origin: 0 0; position: relative;
+}
+
 .toast {
   position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%);
   background: #4ecca3; color: #1a1a2e; padding: 10px 24px;
@@ -324,13 +370,19 @@ header p { font-size: 0.75rem; color: #888; margin-top: 2px; }
   <!-- Step 4: 手描き編集 -->
   <div class="section" id="step4">
     <p class="section-title">Step 5: 課題を書き込む</p>
-    <div class="instruction">
-      壁の画像に<strong>丸・線・テキスト</strong>を書き込めます。<br>
-      完成したら画像を保存してください。
+    <!-- 描画ON/OFF -->
+    <div class="draw-mode-toggle">
+      <div class="toggle-switch" id="drawToggle">
+        <div class="knob"></div>
+      </div>
+      <div>
+        <div class="draw-mode-label" id="drawModeLabel">描画OFF（スクロール可能）</div>
+        <div class="draw-mode-hint">ONにすると画像に書き込めます</div>
+      </div>
     </div>
 
-    <!-- ツールバー -->
-    <div class="draw-toolbar">
+    <!-- ツールバー（描画ON時のみ表示） -->
+    <div class="draw-toolbar" id="drawToolbar" style="display:none">
       <div class="tool-row">
         <button class="tool-btn active" data-tool="circle" title="丸">⭕</button>
         <button class="tool-btn" data-tool="pen" title="ペン">✏️</button>
@@ -351,8 +403,19 @@ header p { font-size: 0.75rem; color: #888; margin-top: 2px; }
       </div>
     </div>
 
-    <div class="canvas-wrapper" id="drawWrapper">
-      <canvas id="drawCanvas"></canvas>
+    <!-- ズームコントロール -->
+    <div class="zoom-controls">
+      <button class="zoom-btn" id="zoomOut">−</button>
+      <span class="zoom-level" id="zoomLevel">100%</span>
+      <button class="zoom-btn" id="zoomIn">＋</button>
+      <button class="zoom-btn" id="zoomFit" style="font-size:0.75rem;width:auto;padding:0 10px">全体</button>
+    </div>
+
+    <!-- スクロール＋ズーム可能なコンテナ -->
+    <div class="draw-scroll-container" id="drawScrollContainer">
+      <div class="draw-inner" id="drawInner">
+        <canvas id="drawCanvas"></canvas>
+      </div>
     </div>
 
     <div style="display:flex;gap:8px;margin-top:12px">
@@ -834,13 +897,12 @@ let drawHistory = [];     // snapshots for undo
 let isDrawing = false;
 let drawStart = null;     // for line/circle start point
 let baseImage = null;     // grid image as base
+let drawModeOn = false;
+let zoomScale = 1;
 
 function initDrawCanvas() {
-  // Copy grid image (without legend) onto draw canvas
   const img = state.image;
-  const [c0, c1] = state.corners;
 
-  // Use full original image width (no legend)
   drawCanvas.width = img.width;
   drawCanvas.height = img.height;
 
@@ -851,17 +913,74 @@ function initDrawCanvas() {
   baseImage = dctx.getImageData(0, 0, drawCanvas.width, drawCanvas.height);
   drawHistory = [drawCanvas.toDataURL()];
 
-  // Scale canvas display
-  const wrapper = document.getElementById('drawWrapper');
-  drawCanvas.style.width = '100%';
-  drawCanvas.style.height = 'auto';
+  // Initial display: fit to container width
+  drawCanvas.style.width = img.width + 'px';
+  drawCanvas.style.height = img.height + 'px';
+
+  // Calculate initial zoom to fit
+  const container = document.getElementById('drawScrollContainer');
+  const fitScale = container.clientWidth / img.width;
+  zoomScale = fitScale;
+  applyZoom();
+
+  // Reset draw mode
+  drawModeOn = false;
+  document.getElementById('drawToggle').classList.remove('on');
+  document.getElementById('drawModeLabel').textContent = '描画OFF（スクロール可能）';
+  document.getElementById('drawToolbar').style.display = 'none';
+  document.getElementById('drawScrollContainer').classList.remove('draw-active');
 }
+
+function applyZoom() {
+  const inner = document.getElementById('drawInner');
+  inner.style.transform = `scale(${zoomScale})`;
+  inner.style.width = drawCanvas.width + 'px';
+  inner.style.height = drawCanvas.height + 'px';
+  // Container needs to know actual size for scrolling
+  const container = document.getElementById('drawScrollContainer');
+  container.style.maxHeight = '70vh';
+  document.getElementById('zoomLevel').textContent = Math.round(zoomScale * 100) + '%';
+}
+
+// Draw mode toggle
+document.getElementById('drawToggle').addEventListener('click', () => {
+  drawModeOn = !drawModeOn;
+  const toggle = document.getElementById('drawToggle');
+  const label = document.getElementById('drawModeLabel');
+  const toolbar = document.getElementById('drawToolbar');
+  const container = document.getElementById('drawScrollContainer');
+  toggle.classList.toggle('on', drawModeOn);
+  if (drawModeOn) {
+    label.textContent = '描画ON（書き込み中）';
+    toolbar.style.display = 'block';
+    container.classList.add('draw-active');
+  } else {
+    label.textContent = '描画OFF（スクロール可能）';
+    toolbar.style.display = 'none';
+    container.classList.remove('draw-active');
+  }
+});
+
+// Zoom controls
+document.getElementById('zoomIn').addEventListener('click', () => {
+  zoomScale = Math.min(4, zoomScale * 1.3);
+  applyZoom();
+});
+document.getElementById('zoomOut').addEventListener('click', () => {
+  zoomScale = Math.max(0.3, zoomScale / 1.3);
+  applyZoom();
+});
+document.getElementById('zoomFit').addEventListener('click', () => {
+  const container = document.getElementById('drawScrollContainer');
+  zoomScale = container.clientWidth / drawCanvas.width;
+  applyZoom();
+});
 
 function getDrawPos(e) {
   const rect = drawCanvas.getBoundingClientRect();
   const scaleX = drawCanvas.width / rect.width;
   const scaleY = drawCanvas.height / rect.height;
-  const touch = e.touches ? e.touches[0] : e;
+  const touch = e.touches ? e.touches[0] : (e.changedTouches ? e.changedTouches[0] : e);
   return {
     x: (touch.clientX - rect.left) * scaleX,
     y: (touch.clientY - rect.top) * scaleY,
@@ -904,6 +1023,7 @@ document.getElementById('drawSize').addEventListener('input', (e) => {
 
 // Drawing events
 function onDrawStart(e) {
+  if (!drawModeOn) return; // let scroll happen
   e.preventDefault();
   const pos = getDrawPos(e);
   isDrawing = true;
@@ -916,7 +1036,7 @@ function onDrawStart(e) {
 }
 
 function onDrawMove(e) {
-  if (!isDrawing) return;
+  if (!drawModeOn || !isDrawing) return;
   e.preventDefault();
   const pos = getDrawPos(e);
 
@@ -953,7 +1073,7 @@ function onDrawMove(e) {
 }
 
 function onDrawEnd(e) {
-  if (!isDrawing) return;
+  if (!drawModeOn || !isDrawing) return;
   isDrawing = false;
 
   const pos = e.changedTouches ? getDrawPos(e) :
