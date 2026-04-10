@@ -1,0 +1,699 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Wall Grid - クライミング課題作成ツール</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#1a1a2e">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: #1a1a2e;
+  color: #eee;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+header {
+  background: #16213e;
+  padding: 12px 16px;
+  text-align: center;
+  border-bottom: 2px solid #0f3460;
+}
+header h1 { font-size: 1.2rem; color: #e94560; }
+header p { font-size: 0.75rem; color: #888; margin-top: 2px; }
+
+.container { max-width: 600px; margin: 0 auto; padding: 12px; }
+
+/* ステップインジケーター */
+.steps {
+  display: flex; gap: 4px; margin-bottom: 16px;
+}
+.steps .step {
+  flex: 1; height: 4px; background: #333; border-radius: 2px;
+  transition: background 0.3s;
+}
+.steps .step.active { background: #e94560; }
+.steps .step.done { background: #4ecca3; }
+
+/* セクション */
+.section { display: none; }
+.section.active { display: block; }
+
+.section-title {
+  font-size: 1rem; font-weight: bold; margin-bottom: 12px;
+  padding-left: 8px; border-left: 3px solid #e94560;
+}
+
+/* ボタン */
+.btn {
+  display: block; width: 100%; padding: 14px;
+  border: none; border-radius: 8px; font-size: 1rem;
+  font-weight: bold; cursor: pointer; margin-top: 12px;
+  transition: opacity 0.2s;
+}
+.btn:active { opacity: 0.7; }
+.btn-primary { background: #e94560; color: #fff; }
+.btn-secondary { background: #333; color: #eee; }
+.btn-success { background: #4ecca3; color: #1a1a2e; }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* 写真アップロード */
+.upload-area {
+  border: 2px dashed #555; border-radius: 12px;
+  padding: 40px 20px; text-align: center; cursor: pointer;
+  transition: border-color 0.3s;
+}
+.upload-area:hover { border-color: #e94560; }
+.upload-area .icon { font-size: 2.5rem; margin-bottom: 8px; }
+.upload-area p { color: #888; font-size: 0.9rem; }
+#fileInput { display: none; }
+
+/* キャンバスエリア */
+.canvas-wrapper {
+  position: relative; width: 100%;
+  background: #111; border-radius: 8px; overflow: hidden;
+  touch-action: none;
+}
+.canvas-wrapper canvas {
+  display: block; width: 100%; height: auto;
+}
+
+.instruction {
+  background: #16213e; padding: 10px 14px; border-radius: 8px;
+  font-size: 0.85rem; color: #aaa; margin-bottom: 12px;
+  line-height: 1.5;
+}
+.instruction strong { color: #e94560; }
+
+/* 入力フォーム */
+.form-group {
+  margin-bottom: 14px;
+}
+.form-group label {
+  display: block; font-size: 0.85rem; color: #aaa;
+  margin-bottom: 4px;
+}
+.form-group input, .form-group select {
+  width: 100%; padding: 10px 12px;
+  background: #16213e; border: 1px solid #333;
+  border-radius: 6px; color: #eee; font-size: 1rem;
+}
+.form-group input:focus, .form-group select:focus {
+  outline: none; border-color: #e94560;
+}
+.form-row {
+  display: flex; gap: 12px;
+}
+.form-row .form-group { flex: 1; }
+
+/* 角度入力エリア */
+.angle-list { margin-top: 8px; }
+.angle-item {
+  display: flex; align-items: center; gap: 8px;
+  margin-bottom: 8px; background: #16213e;
+  padding: 8px 12px; border-radius: 6px;
+}
+.angle-item input { flex: 1; }
+.angle-item .remove-angle {
+  background: none; border: none; color: #e94560;
+  font-size: 1.2rem; cursor: pointer; padding: 4px 8px;
+}
+
+/* グリッド設定 */
+.grid-settings {
+  display: flex; gap: 12px; margin-bottom: 12px;
+  align-items: center;
+}
+.grid-settings label { font-size: 0.85rem; color: #aaa; white-space: nowrap; }
+.grid-settings input {
+  width: 60px; padding: 6px 8px;
+  background: #16213e; border: 1px solid #333;
+  border-radius: 6px; color: #eee; font-size: 0.9rem;
+  text-align: center;
+}
+
+/* プレビュー情報 */
+.info-overlay {
+  background: rgba(0,0,0,0.85); padding: 12px;
+  border-radius: 8px; margin-top: 12px; font-size: 0.8rem;
+  line-height: 1.6;
+}
+.info-overlay .label { color: #888; }
+.info-overlay .value { color: #4ecca3; font-weight: bold; }
+
+/* コピーテキスト */
+.copy-area {
+  background: #16213e; border-radius: 8px; padding: 12px;
+  margin-top: 12px; font-size: 0.8rem; line-height: 1.6;
+  white-space: pre-wrap; word-break: break-all;
+  max-height: 200px; overflow-y: auto;
+}
+
+.toast {
+  position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%);
+  background: #4ecca3; color: #1a1a2e; padding: 10px 24px;
+  border-radius: 20px; font-size: 0.9rem; font-weight: bold;
+  opacity: 0; transition: opacity 0.3s; pointer-events: none; z-index: 100;
+}
+.toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Wall Grid</h1>
+  <p>クライミング課題作成支援ツール</p>
+</header>
+
+<div class="container">
+  <div class="steps">
+    <div class="step active" data-step="0"></div>
+    <div class="step" data-step="1"></div>
+    <div class="step" data-step="2"></div>
+    <div class="step" data-step="3"></div>
+  </div>
+
+  <!-- Step 0: 写真アップロード -->
+  <div class="section active" id="step0">
+    <p class="section-title">Step 1: 壁の写真</p>
+    <div class="upload-area" id="uploadArea">
+      <div class="icon">📷</div>
+      <p>タップして写真を撮影/選択</p>
+    </div>
+    <input type="file" id="fileInput" accept="image/*" capture="environment">
+    <button class="btn btn-primary" id="toStep1" disabled>次へ: 壁の範囲を指定</button>
+  </div>
+
+  <!-- Step 1: 壁の範囲指定 -->
+  <div class="section" id="step1">
+    <p class="section-title">Step 2: 壁の範囲を指定</p>
+    <div class="instruction">
+      壁の<strong>左上</strong>と<strong>右下</strong>をタップしてください。<br>
+      壁だけを囲むように2点をタップします。
+    </div>
+    <div class="canvas-wrapper">
+      <canvas id="wallCanvas"></canvas>
+    </div>
+    <button class="btn btn-secondary" id="resetCorners">タップをやり直す</button>
+    <button class="btn btn-primary" id="toStep2" disabled>次へ: 壁の情報を入力</button>
+    <button class="btn btn-secondary" id="backTo0" style="margin-top:8px">戻る</button>
+  </div>
+
+  <!-- Step 2: 壁情報入力 -->
+  <div class="section" id="step2">
+    <p class="section-title">Step 3: 壁とクライマーの情報</p>
+
+    <p style="font-size:0.9rem; color:#ccc; margin-bottom:12px;">壁の情報</p>
+    <div class="form-row">
+      <div class="form-group">
+        <label>壁の幅 (m)</label>
+        <input type="number" id="wallWidth" step="0.1" placeholder="例: 4.0">
+      </div>
+      <div class="form-group">
+        <label>壁の高さ (m)</label>
+        <input type="number" id="wallHeight" step="0.1" placeholder="例: 3.5">
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label>壁の傾斜（複数可）</label>
+      <div class="angle-list" id="angleList">
+        <div class="angle-item">
+          <input type="number" placeholder="例: 100" min="0" max="180"> <span style="color:#888">度</span>
+          <span style="font-size:0.75rem;color:#666">（90=垂壁）</span>
+        </div>
+      </div>
+      <button class="btn btn-secondary" id="addAngle" style="padding:8px;font-size:0.85rem;margin-top:4px">+ 傾斜を追加</button>
+    </div>
+
+    <hr style="border-color:#333;margin:16px 0">
+    <p style="font-size:0.9rem; color:#ccc; margin-bottom:12px;">クライマーの情報</p>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label>身長 (cm)</label>
+        <input type="number" id="climberHeight" step="0.5" placeholder="例: 178.5">
+      </div>
+      <div class="form-group">
+        <label>リーチ (cm)</label>
+        <input type="number" id="climberReach" step="0.5" placeholder="例: 174">
+      </div>
+    </div>
+    <div class="form-group">
+      <label>希望グレード</label>
+      <select id="grade">
+        <option value="">選択してください</option>
+        <option value="10Q">10級</option><option value="9Q">9級</option>
+        <option value="8Q">8級</option><option value="7Q">7級</option>
+        <option value="6Q">6級</option><option value="5Q">5級</option>
+        <option value="4Q">4級</option><option value="3Q">3級</option>
+        <option value="2Q">2級</option><option value="1Q">1級</option>
+        <option value="1D">初段</option><option value="2D">二段</option>
+        <option value="3D">三段</option><option value="4D">四段</option>
+      </select>
+    </div>
+
+    <div class="form-group">
+      <label>グリッド列数 × 行数</label>
+      <div class="grid-settings">
+        <label>列</label>
+        <input type="number" id="gridCols" value="8" min="3" max="16">
+        <label>行</label>
+        <input type="number" id="gridRows" value="8" min="3" max="16">
+      </div>
+    </div>
+
+    <button class="btn btn-success" id="toStep3">グリッド画像を生成</button>
+    <button class="btn btn-secondary" id="backTo1" style="margin-top:8px">戻る</button>
+  </div>
+
+  <!-- Step 3: 結果 -->
+  <div class="section" id="step3">
+    <p class="section-title">Step 4: グリッド画像</p>
+    <div class="canvas-wrapper">
+      <canvas id="resultCanvas"></canvas>
+    </div>
+    <div class="info-overlay" id="infoOverlay"></div>
+    <button class="btn btn-success" id="downloadBtn">画像をダウンロード</button>
+    <button class="btn btn-primary" id="copyPrompt" style="margin-top:8px">AIプロンプトをコピー</button>
+    <div class="copy-area" id="promptArea" style="display:none"></div>
+    <button class="btn btn-secondary" id="backTo2" style="margin-top:8px">戻って修正</button>
+    <button class="btn btn-secondary" id="restart" style="margin-top:8px">最初からやり直す</button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// State
+const state = {
+  image: null,
+  corners: [],       // [{x,y}, {x,y}] in image coordinates
+  wallWidth: null,
+  wallHeight: null,
+  angles: [],
+  climberHeight: null,
+  climberReach: null,
+  grade: '',
+  gridCols: 8,
+  gridRows: 8,
+};
+
+let currentStep = 0;
+const canvas = document.getElementById('wallCanvas');
+const ctx = canvas.getContext('2d');
+const resultCanvas = document.getElementById('resultCanvas');
+const rctx = resultCanvas.getContext('2d');
+
+// ===== Step navigation =====
+function goToStep(n) {
+  currentStep = n;
+  document.querySelectorAll('.section').forEach((s, i) => {
+    s.classList.toggle('active', i === n);
+  });
+  document.querySelectorAll('.steps .step').forEach((s, i) => {
+    s.classList.remove('active', 'done');
+    if (i < n) s.classList.add('done');
+    if (i === n) s.classList.add('active');
+  });
+  if (n === 1) drawWallCanvas();
+  if (n === 3) generateResult();
+}
+
+// ===== Step 0: Upload =====
+const uploadArea = document.getElementById('uploadArea');
+const fileInput = document.getElementById('fileInput');
+
+uploadArea.addEventListener('click', () => fileInput.click());
+fileInput.addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const img = new Image();
+  img.onload = () => {
+    state.image = img;
+    uploadArea.innerHTML = `<div class="icon">✅</div><p>写真を読み込みました (${img.width}×${img.height})</p>`;
+    document.getElementById('toStep1').disabled = false;
+  };
+  img.src = URL.createObjectURL(file);
+});
+
+document.getElementById('toStep1').addEventListener('click', () => goToStep(1));
+
+// ===== Step 1: Corner selection =====
+function drawWallCanvas() {
+  if (!state.image) return;
+  const img = state.image;
+  const ratio = img.width / img.height;
+  const w = canvas.parentElement.clientWidth;
+  const h = w / ratio;
+  canvas.width = w;
+  canvas.height = h;
+  canvas.dataset.scale = w / img.width;
+  ctx.drawImage(img, 0, 0, w, h);
+
+  // Draw corners
+  const scale = parseFloat(canvas.dataset.scale);
+  state.corners.forEach((c, i) => {
+    const sx = c.x * scale;
+    const sy = c.y * scale;
+    ctx.beginPath();
+    ctx.arc(sx, sy, 10, 0, Math.PI * 2);
+    ctx.fillStyle = i === 0 ? '#e94560' : '#4ecca3';
+    ctx.fill();
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 12px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(i === 0 ? '左上' : '右下', sx, sy - 14);
+  });
+
+  // Draw rectangle
+  if (state.corners.length === 2) {
+    const c0 = state.corners[0];
+    const c1 = state.corners[1];
+    ctx.strokeStyle = '#e94560';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([6, 4]);
+    ctx.strokeRect(c0.x * scale, c0.y * scale, (c1.x - c0.x) * scale, (c1.y - c0.y) * scale);
+    ctx.setLineDash([]);
+    document.getElementById('toStep2').disabled = false;
+  } else {
+    document.getElementById('toStep2').disabled = true;
+  }
+}
+
+canvas.addEventListener('click', (e) => {
+  const rect = canvas.getBoundingClientRect();
+  const scale = parseFloat(canvas.dataset.scale);
+  const x = (e.clientX - rect.left) / scale;
+  const y = (e.clientY - rect.top) / scale;
+
+  if (state.corners.length < 2) {
+    state.corners.push({ x, y });
+  } else {
+    // Replace closest corner
+    const d0 = Math.hypot(x - state.corners[0].x, y - state.corners[0].y);
+    const d1 = Math.hypot(x - state.corners[1].x, y - state.corners[1].y);
+    if (d0 < d1) state.corners[0] = { x, y };
+    else state.corners[1] = { x, y };
+  }
+  // Ensure corner order (top-left, bottom-right)
+  if (state.corners.length === 2) {
+    const [a, b] = state.corners;
+    state.corners = [
+      { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y) },
+      { x: Math.max(a.x, b.x), y: Math.max(a.y, b.y) },
+    ];
+  }
+  drawWallCanvas();
+});
+
+document.getElementById('resetCorners').addEventListener('click', () => {
+  state.corners = [];
+  drawWallCanvas();
+});
+
+document.getElementById('toStep2').addEventListener('click', () => goToStep(2));
+document.getElementById('backTo0').addEventListener('click', () => goToStep(0));
+
+// ===== Step 2: Info input =====
+document.getElementById('addAngle').addEventListener('click', () => {
+  const list = document.getElementById('angleList');
+  const item = document.createElement('div');
+  item.className = 'angle-item';
+  item.innerHTML = `<input type="number" placeholder="例: 120" min="0" max="180"> <span style="color:#888">度</span>
+    <button class="remove-angle" onclick="this.parentElement.remove()">×</button>`;
+  list.appendChild(item);
+});
+
+document.getElementById('toStep3').addEventListener('click', () => {
+  state.wallWidth = parseFloat(document.getElementById('wallWidth').value) || null;
+  state.wallHeight = parseFloat(document.getElementById('wallHeight').value) || null;
+  state.climberHeight = parseFloat(document.getElementById('climberHeight').value) || null;
+  state.climberReach = parseFloat(document.getElementById('climberReach').value) || null;
+  state.grade = document.getElementById('grade').value;
+  state.gridCols = parseInt(document.getElementById('gridCols').value) || 8;
+  state.gridRows = parseInt(document.getElementById('gridRows').value) || 8;
+
+  // Collect angles
+  state.angles = [];
+  document.querySelectorAll('#angleList .angle-item input').forEach(inp => {
+    const v = parseFloat(inp.value);
+    if (v) state.angles.push(v);
+  });
+
+  goToStep(3);
+});
+
+document.getElementById('backTo1').addEventListener('click', () => goToStep(1));
+
+// ===== Step 3: Generate result =====
+function generateResult() {
+  const img = state.image;
+  const [c0, c1] = state.corners;
+  const cols = state.gridCols;
+  const rows = state.gridRows;
+
+  // Legend width
+  const legendW = 300;
+  const totalW = img.width + legendW;
+  const totalH = img.height;
+
+  resultCanvas.width = totalW;
+  resultCanvas.height = totalH;
+
+  // Draw image
+  rctx.drawImage(img, 0, 0);
+
+  // Wall area
+  const wx = c0.x, wy = c0.y;
+  const ww = c1.x - c0.x, wh = c1.y - c0.y;
+  const cellW = ww / cols, cellH = wh / rows;
+
+  // Grid lines
+  rctx.strokeStyle = 'rgba(255,255,0,0.7)';
+  rctx.lineWidth = 1;
+  const colLabels = 'ABCDEFGHIJKLMNOP'.slice(0, cols);
+
+  // Font size relative to image
+  const fontSize = Math.max(12, Math.min(20, Math.round(img.width / 40)));
+  rctx.font = `bold ${fontSize}px sans-serif`;
+
+  for (let c = 0; c <= cols; c++) {
+    const x = wx + c * cellW;
+    rctx.beginPath(); rctx.moveTo(x, wy); rctx.lineTo(x, wy + wh); rctx.stroke();
+    if (c < cols) {
+      rctx.fillStyle = 'rgba(0,0,0,0.6)';
+      const tx = x + cellW / 2;
+      const tw = rctx.measureText(colLabels[c]).width;
+      rctx.fillRect(tx - tw/2 - 3, wy - fontSize - 4, tw + 6, fontSize + 4);
+      rctx.fillStyle = '#ffff00';
+      rctx.textAlign = 'center';
+      rctx.fillText(colLabels[c], tx, wy - 4);
+    }
+  }
+  for (let r = 0; r <= rows; r++) {
+    const y = wy + r * cellH;
+    rctx.beginPath(); rctx.moveTo(wx, y); rctx.lineTo(wx + ww, y); rctx.stroke();
+    if (r < rows) {
+      const label = String(r + 1);
+      rctx.fillStyle = 'rgba(0,0,0,0.6)';
+      const ty = y + cellH / 2;
+      const tw = rctx.measureText(label).width;
+      rctx.fillRect(wx - tw - 10, ty - fontSize/2 - 2, tw + 8, fontSize + 4);
+      rctx.fillStyle = '#ffff00';
+      rctx.textAlign = 'right';
+      rctx.fillText(label, wx - 4, ty + fontSize/3);
+    }
+  }
+
+  // Wall border
+  rctx.strokeStyle = '#e94560';
+  rctx.lineWidth = 2;
+  rctx.strokeRect(wx, wy, ww, wh);
+
+  // Legend area
+  rctx.fillStyle = '#1a1a2e';
+  rctx.fillRect(img.width, 0, legendW, totalH);
+
+  const lx = img.width + 16;
+  let ly = 30;
+  const lFontL = Math.max(18, Math.round(totalH / 45));
+  const lFontS = Math.max(13, Math.round(totalH / 60));
+
+  rctx.textAlign = 'left';
+
+  // Title
+  rctx.font = `bold ${lFontL}px sans-serif`;
+  rctx.fillStyle = '#e94560';
+  rctx.fillText('Wall Grid', lx, ly); ly += lFontL + 8;
+
+  rctx.font = `${lFontS}px sans-serif`;
+  rctx.fillStyle = '#888';
+
+  // Grid info
+  rctx.fillText(`グリッド: ${cols}列(A-${colLabels[cols-1]}) × ${rows}行`, lx, ly);
+  ly += lFontS + 6;
+
+  // Wall info
+  if (state.wallWidth && state.wallHeight) {
+    rctx.fillText(`壁サイズ: ${state.wallWidth}m × ${state.wallHeight}m`, lx, ly);
+    ly += lFontS + 4;
+    const cw = (state.wallWidth / cols).toFixed(2);
+    const ch = (state.wallHeight / rows).toFixed(2);
+    rctx.fillText(`1マス: 約${cw}m × ${ch}m`, lx, ly);
+    ly += lFontS + 6;
+  }
+
+  if (state.angles.length > 0) {
+    const angStr = state.angles.map(a => `${a}度`).join(', ');
+    rctx.fillText(`傾斜: ${angStr}`, lx, ly);
+    ly += lFontS + 6;
+  }
+
+  // Separator
+  ly += 4;
+  rctx.strokeStyle = '#333'; rctx.lineWidth = 1;
+  rctx.beginPath(); rctx.moveTo(lx, ly); rctx.lineTo(lx + legendW - 32, ly); rctx.stroke();
+  ly += 12;
+
+  // Climber info
+  rctx.fillStyle = '#4ecca3';
+  rctx.font = `bold ${lFontS}px sans-serif`;
+  rctx.fillText('クライマー情報', lx, ly); ly += lFontS + 6;
+  rctx.fillStyle = '#ccc';
+  rctx.font = `${lFontS}px sans-serif`;
+  if (state.climberHeight) {
+    rctx.fillText(`身長: ${state.climberHeight}cm`, lx, ly); ly += lFontS + 4;
+  }
+  if (state.climberReach) {
+    rctx.fillText(`リーチ: ${state.climberReach}cm`, lx, ly); ly += lFontS + 4;
+  }
+  if (state.grade) {
+    rctx.fillText(`希望グレード: ${state.grade}`, lx, ly); ly += lFontS + 4;
+  }
+
+  // Separator
+  ly += 8;
+  rctx.strokeStyle = '#333'; rctx.lineWidth = 1;
+  rctx.beginPath(); rctx.moveTo(lx, ly); rctx.lineTo(lx + legendW - 32, ly); rctx.stroke();
+  ly += 12;
+
+  // Usage instruction
+  rctx.fillStyle = '#888';
+  rctx.font = `${Math.max(11, lFontS - 2)}px sans-serif`;
+  const usageLines = [
+    '使い方:',
+    'この画像をAI(Claude/ChatGPT)に',
+    '送り、マスと色でホールドを指定',
+    'して課題を作ってもらう。',
+    '',
+    '例: 「F8の緑ボリュームを',
+    'スタートに、3Qの課題を',
+    '作ってください」',
+  ];
+  usageLines.forEach(line => {
+    rctx.fillText(line, lx, ly);
+    ly += lFontS + 2;
+  });
+
+  // Info overlay
+  const infoEl = document.getElementById('infoOverlay');
+  let infoHTML = '';
+  if (state.wallWidth && state.wallHeight) {
+    const cw = (state.wallWidth / cols).toFixed(2);
+    const ch = (state.wallHeight / rows).toFixed(2);
+    infoHTML += `<span class="label">1マスのサイズ:</span> <span class="value">約${cw}m × ${ch}m</span><br>`;
+  }
+  if (state.climberReach && state.wallWidth) {
+    const reachInCells = (state.climberReach / 100 / (state.wallWidth / cols)).toFixed(1);
+    infoHTML += `<span class="label">リーチ${state.climberReach}cm =</span> <span class="value">約${reachInCells}マス分</span><br>`;
+  }
+  if (state.angles.length > 0) {
+    infoHTML += `<span class="label">傾斜:</span> <span class="value">${state.angles.map(a => a + '度').join(', ')}</span>`;
+  }
+  infoEl.innerHTML = infoHTML || '<span class="label">壁情報が未入力です</span>';
+}
+
+// Download
+document.getElementById('downloadBtn').addEventListener('click', () => {
+  const link = document.createElement('a');
+  link.download = 'wall-grid.png';
+  link.href = resultCanvas.toDataURL('image/png');
+  link.click();
+  showToast('画像を保存しました');
+});
+
+// Copy AI prompt
+document.getElementById('copyPrompt').addEventListener('click', () => {
+  const cols = state.gridCols;
+  const rows = state.gridRows;
+  const colLabels = 'ABCDEFGHIJKLMNOP'.slice(0, cols);
+
+  let prompt = `以下のクライミングウォールのグリッド画像を見て、課題を作ってください。\n\n`;
+  prompt += `【壁情報】\n`;
+  prompt += `- グリッド: ${cols}列(A-${colLabels[cols-1]}) × ${rows}行(1-${rows})\n`;
+  if (state.wallWidth && state.wallHeight) {
+    const cw = (state.wallWidth / cols).toFixed(2);
+    const ch = (state.wallHeight / rows).toFixed(2);
+    prompt += `- 壁サイズ: 幅${state.wallWidth}m × 高さ${state.wallHeight}m\n`;
+    prompt += `- 1マス: 約${cw}m × ${ch}m\n`;
+  }
+  if (state.angles.length > 0) {
+    prompt += `- 傾斜: ${state.angles.map(a => a + '度').join(', ')}（90度=垂壁、90度超=かぶり）\n`;
+  }
+  prompt += `\n【クライマー情報】\n`;
+  if (state.climberHeight) prompt += `- 身長: ${state.climberHeight}cm\n`;
+  if (state.climberReach) prompt += `- リーチ: ${state.climberReach}cm\n`;
+  if (state.climberReach && state.wallWidth) {
+    const reachInCells = (state.climberReach / 100 / (state.wallWidth / cols)).toFixed(1);
+    prompt += `- リーチは約${reachInCells}マス分\n`;
+  }
+  if (state.grade) prompt += `- 希望グレード: ${state.grade}\n`;
+  prompt += `\n【指示】\n`;
+  prompt += `1. この画像のグリッド座標（例: A1, F8）と色でホールドを指定して課題を作ってください。\n`;
+  prompt += `2. 使いたいホールドを提案してください。私がそのホールドの持ち方（ガバ/カチ/スローパー等）を教えます。\n`;
+  prompt += `3. リーチ内で届く距離のムーブにしてください。\n`;
+  prompt += `4. 足は自由 or 限定かも提案してください。\n`;
+
+  const promptArea = document.getElementById('promptArea');
+  promptArea.textContent = prompt;
+  promptArea.style.display = 'block';
+
+  navigator.clipboard.writeText(prompt).then(() => {
+    showToast('プロンプトをコピーしました');
+  }).catch(() => {
+    showToast('長押しでコピーしてください');
+  });
+});
+
+document.getElementById('backTo2').addEventListener('click', () => goToStep(2));
+document.getElementById('restart').addEventListener('click', () => {
+  state.image = null;
+  state.corners = [];
+  uploadArea.innerHTML = `<div class="icon">📷</div><p>タップして写真を撮影/選択</p>`;
+  document.getElementById('toStep1').disabled = true;
+  fileInput.value = '';
+  goToStep(0);
+});
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2000);
+}
+
+// PWA
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}
+</script>
+</body>
+</html>

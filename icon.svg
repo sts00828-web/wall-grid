@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="64" fill="#1a1a2e"/>
+  <rect x="80" y="80" width="352" height="352" rx="8" fill="none" stroke="#e94560" stroke-width="12"/>
+  <line x1="168" y1="80" x2="168" y2="432" stroke="#ffff00" stroke-width="4" opacity="0.6"/>
+  <line x1="256" y1="80" x2="256" y2="432" stroke="#ffff00" stroke-width="4" opacity="0.6"/>
+  <line x1="344" y1="80" x2="344" y2="432" stroke="#ffff00" stroke-width="4" opacity="0.6"/>
+  <line x1="80" y1="168" x2="432" y2="168" stroke="#ffff00" stroke-width="4" opacity="0.6"/>
+  <line x1="80" y1="256" x2="432" y2="256" stroke="#ffff00" stroke-width="4" opacity="0.6"/>
+  <line x1="80" y1="344" x2="432" y2="344" stroke="#ffff00" stroke-width="4" opacity="0.6"/>
+  <circle cx="200" cy="200" r="24" fill="#4ecca3"/>
+  <circle cx="320" cy="300" r="24" fill="#e94560"/>
+  <circle cx="160" cy="360" r="20" fill="#ffff00"/>
+  <text x="256" y="490" text-anchor="middle" fill="#888" font-size="36" font-family="sans-serif">WALL GRID</text>
+</svg>
