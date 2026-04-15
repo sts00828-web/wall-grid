@@ -814,6 +814,10 @@ document.getElementById('copyPrompt').addEventListener('click', () => {
   const rows = state.gridRows;
   const colLabels = 'ABCDEFGHIJKLMNOP'.slice(0, cols);
 
+  // スタート推奨行を計算（立って手が届く高さ = 壁の下から約1.2-2.0m）
+  const startRowMax = state.wallHeight ? Math.min(rows, Math.round(rows - 1.2 / (state.wallHeight / rows))) : Math.round(rows * 0.65);
+  const startRowMin = state.wallHeight ? Math.max(1, Math.round(rows - 2.0 / (state.wallHeight / rows))) : Math.round(rows * 0.45);
+
   let prompt = '';
   prompt += `あなたはクライミングの課題（ルート）セッターです。\n`;
   prompt += `添付のグリッド付き壁写真を見て、対話しながら課題を作ってください。\n\n`;
@@ -839,12 +843,29 @@ document.getElementById('copyPrompt').addEventListener('click', () => {
   }
   if (state.grade) prompt += `- 希望グレード: ${state.grade}\n`;
 
-  prompt += `\n【課題の作り方（重要）】\n`;
+  prompt += `\n【座標の読み方（重要）】\n`;
+  prompt += `- 各マスの中央に「A1」「B2」等のラベルが表示されています\n`;
+  prompt += `- ホールドがどのマスにあるか判断する際は、ホールドの中心が\n`;
+  prompt += `  どのラベルに最も近いかで判断してください\n`;
+  prompt += `- 座標に自信がない場合は「E5またはF5」のように候補を2つ挙げてください\n`;
+  prompt += `- 私が正しい座標を教えるので、それに従ってください\n`;
+
+  prompt += `\n【ホールド選びのルール（重要）】\n`;
+  prompt += `- スタートホールドは行${startRowMin}〜${startRowMax}の範囲にすること\n`;
+  prompt += `  （立った状態で手が届く高さ。行${startRowMax + 1}以降は低すぎてスタートできない）\n`;
+  prompt += `- ゴールは行1〜3の範囲\n`;
+  prompt += `- 大きくて目立つホールドばかり選ばないこと。まぶし壁には小〜中サイズの\n`;
+  prompt += `  ホールドが多数あるので、大きいホールドは最大2個までに制限し、\n`;
+  prompt += `  残りは中〜小サイズのホールドを積極的に使ってください\n`;
+  prompt += `- 色が同じ大きなホールドばかりのルートは単調になるので避けること\n`;
+
+  prompt += `\n【課題の作り方】\n`;
   prompt += `以下の手順で対話しながら課題を作ってください：\n\n`;
   prompt += `1. まず画像を見て、使いたいホールドの候補を5〜8個選び、\n`;
-  prompt += `   グリッド座標と色で提示してください。\n`;
-  prompt += `   例: 「F8の緑の大きなホールド」「D4の黄色いホールド」\n\n`;
+  prompt += `   グリッド座標と色・サイズで提示してください。\n`;
+  prompt += `   例: 「E5の赤い小さなホールド」「C3の緑の中くらいのホールド」\n\n`;
   prompt += `2. 私がそれぞれのホールドについて以下を回答します：\n`;
+  prompt += `   - 座標が合っているか（ずれていたら正しい座標を教えます）\n`;
   prompt += `   - 持ち方（ガバ/カチ/スローパー/ピンチ/アンダー等）\n`;
   prompt += `   - 向き（右手向き/左手向き/どちらでも）\n`;
   prompt += `   - 足として使えるか\n`;
