@@ -241,21 +241,24 @@ header p { font-size: 0.75rem; color: #888; margin-top: 2px; }
 .zoom-btn:active { background: #2a2a4e; }
 .zoom-level { font-size: 0.85rem; color: #aaa; min-width: 50px; text-align: center; }
 
-/* ズーム可能キャンバスコンテナ */
+/* ズーム可能キャンバスコンテナ（transformベース） */
 .draw-scroll-container {
-  overflow: auto; max-height: 70vh;
+  overflow: hidden; height: 70vh;
   border: 2px solid #333; border-radius: 8px;
-  background: #111; -webkit-overflow-scrolling: touch;
-  touch-action: auto;  /* ピンチ/パンを許可 */
+  background: #111;
+  position: relative;
+  touch-action: none;  /* 全タッチをJSで処理 */
+  user-select: none;
 }
 .draw-scroll-container.draw-active { border-color: #e94560; }
 .draw-inner {
-  position: relative;
+  position: absolute; top: 0; left: 0;
+  transform-origin: 0 0;
+  will-change: transform;
 }
 #drawCanvas {
   display: block;
-  pointer-events: none; /* 初期状態は通過（スクロール可能） */
-  touch-action: auto;
+  touch-action: none;
 }
 
 .toast {
@@ -408,8 +411,8 @@ header p { font-size: 0.75rem; color: #888; margin-top: 2px; }
     <p class="section-title">Step 5: 課題を書き込む</p>
 
     <div class="instruction">
-      <strong>描画ON</strong>にしてホールドをタップ → 丸が置かれる<br>
-      丸/ラベルを<strong>ドラッグで移動</strong> ／ <strong>ダブルタップで削除</strong><br>
+      <strong>ピンチで拡大縮小</strong> / 描画OFFなら<strong>1本指でパン</strong><br>
+      描画ONでホールドを<strong>タップ→丸配置</strong> / <strong>ドラッグで移動</strong> / <strong>ダブルタップで削除</strong><br>
       <span style="color:#4ecca3">緑=スタート/ゴール</span>、<span style="color:#ff6b6b">赤=中間</span>、<span style="color:#f59e0b">スタンプ=足自由/グレード</span>
     </div>
 
@@ -970,6 +973,10 @@ let baseImgNoGrid = null;      // グリッドなし画像（元の写真）
 let baseImg = null;            // 現在表示中（上記どちらか）
 let gridVisible = true;
 
+// パン＋ピンチ状態
+let panX = 0, panY = 0;   // canvas原点のコンテナ内オフセット(px)
+let pinchStart = null;    // {dist, midX, midY, panX, panY, zoom}
+
 function getCircleRadius() {
   // Size = 1マスの1/3 くらい（小さめのホールドも囲める）
   const [c0, c1] = state.corners;
@@ -1016,7 +1023,9 @@ function initDrawCanvas() {
 
   // Fit to container
   const container = document.getElementById('drawScrollContainer');
-  zoomScale = container.clientWidth / img.width;
+  zoomScale = Math.min(container.clientWidth / img.width, container.clientHeight / img.height);
+  panX = (container.clientWidth - img.width * zoomScale) / 2;
+  panY = (container.clientHeight - img.height * zoomScale) / 2;
   applyZoom();
 
   // Reset draw mode
@@ -1025,8 +1034,6 @@ function initDrawCanvas() {
   document.getElementById('drawModeLabel').textContent = '描画OFF（スクロール/ピンチ可能）';
   document.getElementById('colorPicker').style.display = 'none';
   document.getElementById('drawScrollContainer').classList.remove('draw-active');
-  drawCanvas.style.pointerEvents = 'none';
-  drawCanvas.style.touchAction = 'auto';
 }
 
 function redrawAll() {
@@ -1094,18 +1101,31 @@ function findTextAt(pos) {
 }
 
 function applyZoom() {
-  // transformではなく実CSSサイズを変更（スクロールコンテナが正しいサイズを認識できる）
+  // transform: translate() scale() でパン＋ズームを同時適用
   const inner = document.getElementById('drawInner');
-  const w = drawCanvas.width * zoomScale;
-  const h = drawCanvas.height * zoomScale;
-  drawCanvas.style.width = w + 'px';
-  drawCanvas.style.height = h + 'px';
-  inner.style.width = w + 'px';
-  inner.style.height = h + 'px';
-  inner.style.transform = 'none';
-  const container = document.getElementById('drawScrollContainer');
-  container.style.maxHeight = '70vh';
+  drawCanvas.style.width = drawCanvas.width + 'px';
+  drawCanvas.style.height = drawCanvas.height + 'px';
+  inner.style.transform = `translate(${panX}px, ${panY}px) scale(${zoomScale})`;
   document.getElementById('zoomLevel').textContent = Math.round(zoomScale * 100) + '%';
+}
+
+function clampPan() {
+  const container = document.getElementById('drawScrollContainer');
+  const viewW = container.clientWidth;
+  const viewH = container.clientHeight;
+  const contentW = drawCanvas.width * zoomScale;
+  const contentH = drawCanvas.height * zoomScale;
+  const margin = 60; // 少しはみ出し許可
+  if (contentW > viewW) {
+    panX = Math.min(margin, Math.max(viewW - contentW - margin, panX));
+  } else {
+    panX = (viewW - contentW) / 2;
+  }
+  if (contentH > viewH) {
+    panY = Math.min(margin, Math.max(viewH - contentH - margin, panY));
+  } else {
+    panY = (viewH - contentH) / 2;
+  }
 }
 
 // Draw mode toggle
@@ -1117,9 +1137,6 @@ document.getElementById('drawToggle').addEventListener('click', () => {
   document.getElementById('colorPicker').style.display = drawModeOn ? 'flex' : 'none';
   document.getElementById('stampRow').style.display = drawModeOn ? 'flex' : 'none';
   document.getElementById('drawScrollContainer').classList.toggle('draw-active', drawModeOn);
-  // 描画OFFの時はcanvasがタッチを受けないようにする → スクロール可能
-  drawCanvas.style.pointerEvents = drawModeOn ? 'auto' : 'none';
-  drawCanvas.style.touchAction = drawModeOn ? 'none' : 'auto';
 });
 
 // Color selection
@@ -1166,15 +1183,33 @@ document.querySelectorAll('.stamp-btn').forEach(btn => {
   });
 });
 
-// Zoom
+function zoomAround(newScale, cx, cy) {
+  // (cx, cy) = コンテナ内のズーム中心座標(px)
+  // 中心点のcanvas座標を固定して拡大
+  const oldScale = zoomScale;
+  newScale = Math.max(0.2, Math.min(5, newScale));
+  const canvasX = (cx - panX) / oldScale;
+  const canvasY = (cy - panY) / oldScale;
+  zoomScale = newScale;
+  panX = cx - canvasX * zoomScale;
+  panY = cy - canvasY * zoomScale;
+  clampPan();
+  applyZoom();
+}
+
 document.getElementById('zoomIn').addEventListener('click', () => {
-  zoomScale = Math.min(4, zoomScale * 1.3); applyZoom();
+  const c = document.getElementById('drawScrollContainer');
+  zoomAround(zoomScale * 1.3, c.clientWidth / 2, c.clientHeight / 2);
 });
 document.getElementById('zoomOut').addEventListener('click', () => {
-  zoomScale = Math.max(0.3, zoomScale / 1.3); applyZoom();
+  const c = document.getElementById('drawScrollContainer');
+  zoomAround(zoomScale / 1.3, c.clientWidth / 2, c.clientHeight / 2);
 });
 document.getElementById('zoomFit').addEventListener('click', () => {
-  zoomScale = document.getElementById('drawScrollContainer').clientWidth / drawCanvas.width;
+  const container = document.getElementById('drawScrollContainer');
+  zoomScale = Math.min(container.clientWidth / drawCanvas.width, container.clientHeight / drawCanvas.height);
+  panX = (container.clientWidth - drawCanvas.width * zoomScale) / 2;
+  panY = (container.clientHeight - drawCanvas.height * zoomScale) / 2;
   applyZoom();
 });
 
@@ -1187,14 +1222,23 @@ document.getElementById('toggleGrid').addEventListener('click', () => {
 });
 
 function getCanvasPos(e) {
-  const rect = drawCanvas.getBoundingClientRect();
-  const scaleX = drawCanvas.width / rect.width;
-  const scaleY = drawCanvas.height / rect.height;
+  // コンテナ内座標 → canvas座標への変換（pan/zoom考慮）
+  const container = document.getElementById('drawScrollContainer');
+  const cRect = container.getBoundingClientRect();
   const pt = e.touches ? e.touches[0] : (e.changedTouches ? e.changedTouches[0] : e);
+  const cx = pt.clientX - cRect.left;
+  const cy = pt.clientY - cRect.top;
   return {
-    x: (pt.clientX - rect.left) * scaleX,
-    y: (pt.clientY - rect.top) * scaleY,
+    x: (cx - panX) / zoomScale,
+    y: (cy - panY) / zoomScale,
   };
+}
+
+function getContainerPos(e, touchIndex = 0) {
+  const container = document.getElementById('drawScrollContainer');
+  const cRect = container.getBoundingClientRect();
+  const pt = e.touches ? e.touches[touchIndex] : e;
+  return { x: pt.clientX - cRect.left, y: pt.clientY - cRect.top };
 }
 
 function findCircleAt(pos) {
@@ -1297,19 +1341,39 @@ function onDoubleTap(pos) {
   }
 }
 
-drawCanvas.addEventListener('mousedown', onPointerDown);
-drawCanvas.addEventListener('mousemove', onPointerMove);
-drawCanvas.addEventListener('mouseup', onPointerUp);
-drawCanvas.addEventListener('dblclick', (e) => {
-  if (!drawModeOn) return;
-  e.preventDefault();
-  onDoubleTap(getCanvasPos(e));
-});
-drawCanvas.addEventListener('touchstart', (e) => {
-  if (!drawModeOn) return;
+// --- パン状態（単指、描画OFF時）---
+let panStart = null; // {x, y, panX, panY}
+
+// コンテナレベルでイベントを受ける（canvas外のエリアも含めて操作できる）
+const container = document.getElementById('drawScrollContainer');
+
+container.addEventListener('touchstart', (e) => {
+  if (e.touches.length === 2) {
+    // ピンチ開始
+    e.preventDefault();
+    const p1 = getContainerPos(e, 0);
+    const p2 = getContainerPos(e, 1);
+    const dist = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+    pinchStart = {
+      dist,
+      midX: (p1.x + p2.x) / 2,
+      midY: (p1.y + p2.y) / 2,
+      panX, panY, zoom: zoomScale,
+    };
+    // 描画/ドラッグをキャンセル
+    draggingIndex = -1;
+    draggingKind = '';
+    panStart = null;
+    touchStartPos = null;
+    return;
+  }
+
+  if (e.touches.length !== 1) return;
   const now = Date.now();
   const pos = getCanvasPos(e);
-  if (lastTapPos && now - lastTapTime < 350 &&
+
+  // ダブルタップ判定（描画ON時のみ）
+  if (drawModeOn && lastTapPos && now - lastTapTime < 350 &&
       Math.hypot(pos.x - lastTapPos.x, pos.y - lastTapPos.y) < 30) {
     e.preventDefault();
     onDoubleTap(pos);
@@ -1318,10 +1382,79 @@ drawCanvas.addEventListener('touchstart', (e) => {
   }
   lastTapTime = now;
   lastTapPos = pos;
-  onPointerDown(e);
+
+  if (drawModeOn) {
+    onPointerDown(e);
+  } else {
+    // 描画OFF = 単指でパン
+    e.preventDefault();
+    const cp = getContainerPos(e);
+    panStart = { x: cp.x, y: cp.y, panX, panY };
+  }
 }, { passive: false });
-drawCanvas.addEventListener('touchmove', onPointerMove, { passive: false });
-drawCanvas.addEventListener('touchend', onPointerUp);
+
+container.addEventListener('touchmove', (e) => {
+  // ピンチ
+  if (pinchStart && e.touches.length === 2) {
+    e.preventDefault();
+    const p1 = getContainerPos(e, 0);
+    const p2 = getContainerPos(e, 1);
+    const dist = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+    const newZoom = Math.max(0.2, Math.min(5, pinchStart.zoom * (dist / pinchStart.dist)));
+    // ピンチ中心点のcanvas座標を固定
+    const canvasX = (pinchStart.midX - pinchStart.panX) / pinchStart.zoom;
+    const canvasY = (pinchStart.midY - pinchStart.panY) / pinchStart.zoom;
+    zoomScale = newZoom;
+    // 現在の中心点も動くかもしれないので更新
+    const nowMidX = (p1.x + p2.x) / 2;
+    const nowMidY = (p1.y + p2.y) / 2;
+    panX = nowMidX - canvasX * zoomScale;
+    panY = nowMidY - canvasY * zoomScale;
+    clampPan();
+    applyZoom();
+    return;
+  }
+
+  // パン（描画OFF、単指）
+  if (panStart && e.touches.length === 1 && !drawModeOn) {
+    e.preventDefault();
+    const cp = getContainerPos(e);
+    panX = panStart.panX + (cp.x - panStart.x);
+    panY = panStart.panY + (cp.y - panStart.y);
+    clampPan();
+    applyZoom();
+    return;
+  }
+
+  // 描画ONのドラッグ/描画
+  if (drawModeOn && e.touches.length === 1) {
+    onPointerMove(e);
+  }
+}, { passive: false });
+
+container.addEventListener('touchend', (e) => {
+  if (pinchStart && e.touches.length < 2) pinchStart = null;
+  if (panStart && e.touches.length === 0) panStart = null;
+  if (drawModeOn) onPointerUp(e);
+});
+
+// マウス（PC用、描画のみ）
+drawCanvas.addEventListener('mousedown', onPointerDown);
+drawCanvas.addEventListener('mousemove', onPointerMove);
+drawCanvas.addEventListener('mouseup', onPointerUp);
+drawCanvas.addEventListener('dblclick', (e) => {
+  if (!drawModeOn) return;
+  e.preventDefault();
+  onDoubleTap(getCanvasPos(e));
+});
+
+// PCマウスホイールでズーム
+container.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  const cp = getContainerPos(e);
+  const factor = e.deltaY < 0 ? 1.15 : 1/1.15;
+  zoomAround(zoomScale * factor, cp.x, cp.y);
+}, { passive: false });
 
 // Undo (最後に追加した丸またはテキスト)
 document.getElementById('undoDraw').addEventListener('click', () => {
