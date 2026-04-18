@@ -978,15 +978,16 @@ let panX = 0, panY = 0;   // canvas原点のコンテナ内オフセット(px)
 let pinchStart = null;    // {dist, midX, midY, panX, panY, zoom}
 
 function getCircleRadius() {
-  // Size = 1マスの1/3 くらい（小さめのホールドも囲める）
+  // Size = 1マスの30% くらい（小さめのホールドも狙いやすい）
   const [c0, c1] = state.corners;
   const cellW = (c1.x - c0.x) / state.gridCols;
   const cellH = (c1.y - c0.y) / state.gridRows;
-  return Math.round(Math.min(cellW, cellH) * 0.45);
+  return Math.round(Math.min(cellW, cellH) * 0.30);
 }
 
 function getLineWidth() {
-  return Math.max(3, Math.round(drawCanvas.width / 300));
+  // 線を1.7倍くらい太く
+  return Math.max(5, Math.round(drawCanvas.width / 175));
 }
 
 function initDrawCanvas() {
