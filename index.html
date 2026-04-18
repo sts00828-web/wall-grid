@@ -430,6 +430,7 @@ header p { font-size: 0.75rem; color: #888; margin-top: 2px; }
       <span class="zoom-level" id="zoomLevel">100%</span>
       <button class="zoom-btn" id="zoomIn">＋</button>
       <button class="zoom-btn" id="zoomFit" style="font-size:0.75rem;width:auto;padding:0 10px">全体</button>
+      <button class="zoom-btn" id="toggleGrid" style="font-size:0.75rem;width:auto;padding:0 10px;margin-left:auto">グリッドON</button>
     </div>
 
     <!-- スクロール＋ズーム可能なコンテナ -->
@@ -942,7 +943,10 @@ let dragOffset = { x: 0, y: 0 };
 let touchStartPos = null;
 let touchStartTime = 0;
 let touchMoved = false;
-let baseImg = null;        // HTMLImageElement of grid result (image portion only)
+let baseImgWithGrid = null;    // グリッドあり画像
+let baseImgNoGrid = null;      // グリッドなし画像（元の写真）
+let baseImg = null;            // 現在表示中（上記どちらか）
+let gridVisible = true;
 
 function getCircleRadius() {
   // Size = 1マスの1/3 くらい（小さめのホールドも囲める）
@@ -961,15 +965,27 @@ function initDrawCanvas() {
   drawCanvas.width = img.width;
   drawCanvas.height = img.height;
 
-  // Cache base (grid image) as HTMLImageElement for fast redraws
-  baseImg = new Image();
-  baseImg.onload = () => redrawAll();
-  // Extract only the image portion (no legend) from resultCanvas
-  const tmp = document.createElement('canvas');
-  tmp.width = img.width;
-  tmp.height = img.height;
-  tmp.getContext('2d').drawImage(resultCanvas, 0, 0, img.width, img.height, 0, 0, img.width, img.height);
-  baseImg.src = tmp.toDataURL('image/png');
+  // グリッドあり: resultCanvasから画像部分だけ抽出
+  const tmp1 = document.createElement('canvas');
+  tmp1.width = img.width;
+  tmp1.height = img.height;
+  tmp1.getContext('2d').drawImage(resultCanvas, 0, 0, img.width, img.height, 0, 0, img.width, img.height);
+  baseImgWithGrid = new Image();
+  baseImgWithGrid.onload = () => { if (gridVisible) redrawAll(); };
+  baseImgWithGrid.src = tmp1.toDataURL('image/png');
+
+  // グリッドなし: 元の写真そのまま
+  baseImgNoGrid = new Image();
+  baseImgNoGrid.onload = () => { if (!gridVisible) redrawAll(); };
+  const tmp2 = document.createElement('canvas');
+  tmp2.width = img.width;
+  tmp2.height = img.height;
+  tmp2.getContext('2d').drawImage(img, 0, 0);
+  baseImgNoGrid.src = tmp2.toDataURL('image/png');
+
+  gridVisible = true;
+  baseImg = baseImgWithGrid;
+  document.getElementById('toggleGrid').textContent = 'グリッドON';
 
   circles = [];
   drawCanvas.style.width = img.width + 'px';
@@ -1061,6 +1077,14 @@ document.getElementById('zoomOut').addEventListener('click', () => {
 document.getElementById('zoomFit').addEventListener('click', () => {
   zoomScale = document.getElementById('drawScrollContainer').clientWidth / drawCanvas.width;
   applyZoom();
+});
+
+// グリッド表示トグル
+document.getElementById('toggleGrid').addEventListener('click', () => {
+  gridVisible = !gridVisible;
+  baseImg = gridVisible ? baseImgWithGrid : baseImgNoGrid;
+  document.getElementById('toggleGrid').textContent = gridVisible ? 'グリッドON' : 'グリッドOFF';
+  redrawAll();
 });
 
 function getCanvasPos(e) {
