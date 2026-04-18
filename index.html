@@ -194,6 +194,18 @@ header p { font-size: 0.75rem; color: #888; margin-top: 2px; }
   border-radius: 50%; border: 3px solid;
 }
 
+/* スタンプボタン */
+.stamp-row {
+  display: flex; gap: 6px; margin-bottom: 8px; flex-wrap: wrap;
+}
+.stamp-btn {
+  flex: 1; min-width: 70px; padding: 8px 10px;
+  background: #16213e; border: 1px solid #f59e0b;
+  color: #f59e0b; border-radius: 6px;
+  font-size: 0.85rem; font-weight: bold; cursor: pointer;
+}
+.stamp-btn:active { background: #f59e0b; color: #1a1a2e; }
+
 /* 描画モードトグル */
 .draw-mode-toggle {
   display: flex; align-items: center; gap: 8px;
@@ -397,8 +409,8 @@ header p { font-size: 0.75rem; color: #888; margin-top: 2px; }
 
     <div class="instruction">
       <strong>描画ON</strong>にしてホールドをタップ → 丸が置かれる<br>
-      丸を<strong>ドラッグで移動</strong> ／ <strong>ダブルタップで削除</strong><br>
-      <span style="color:#4ecca3">緑=スタート/ゴール</span>、<span style="color:#ff6b6b">赤=中間ホールド</span>
+      丸/ラベルを<strong>ドラッグで移動</strong> ／ <strong>ダブルタップで削除</strong><br>
+      <span style="color:#4ecca3">緑=スタート/ゴール</span>、<span style="color:#ff6b6b">赤=中間</span>、<span style="color:#f59e0b">スタンプ=足自由/グレード</span>
     </div>
 
     <!-- 描画ON/OFFトグル -->
@@ -422,6 +434,14 @@ header p { font-size: 0.75rem; color: #888; margin-top: 2px; }
         <span class="dot" style="border-color:#ff0000"></span>
         <span>赤（中間）</span>
       </button>
+    </div>
+
+    <!-- スタンプ（足自由・グレード） -->
+    <div class="stamp-row" id="stampRow" style="display:none">
+      <button class="stamp-btn" data-stamp="足自由">足自由</button>
+      <button class="stamp-btn" data-stamp="足限定">足限定</button>
+      <button class="stamp-btn" data-stamp="Q">Q (級)</button>
+      <button class="stamp-btn" data-stamp="D">D (段)</button>
     </div>
 
     <!-- ズームコントロール -->
@@ -938,7 +958,9 @@ let drawModeOn = false;
 let zoomScale = 1;
 let activeColor = 'green'; // 'green' | 'red'
 let circles = [];          // {x, y, color}
+let texts = [];            // {x, y, text, size, color}
 let draggingIndex = -1;
+let draggingKind = '';     // 'circle' | 'text'
 let dragOffset = { x: 0, y: 0 };
 let touchStartPos = null;
 let touchStartTime = 0;
@@ -988,6 +1010,7 @@ function initDrawCanvas() {
   document.getElementById('toggleGrid').textContent = 'グリッドON';
 
   circles = [];
+  texts = [];
   drawCanvas.style.width = img.width + 'px';
   drawCanvas.style.height = img.height + 'px';
 
@@ -1013,21 +1036,61 @@ function redrawAll() {
 
   const r = getCircleRadius();
   const lw = getLineWidth();
-  circles.forEach((c, i) => {
+  circles.forEach((c) => {
     const stroke = c.color === 'green' ? '#00ff00' : '#ff0000';
-    // 外側の黒縁
     dctx.beginPath();
     dctx.arc(c.x, c.y, r, 0, Math.PI * 2);
     dctx.strokeStyle = 'rgba(0,0,0,0.8)';
     dctx.lineWidth = lw + 2;
     dctx.stroke();
-    // 色付き円
     dctx.beginPath();
     dctx.arc(c.x, c.y, r, 0, Math.PI * 2);
     dctx.strokeStyle = stroke;
     dctx.lineWidth = lw;
     dctx.stroke();
   });
+
+  // テキストラベル
+  texts.forEach((t) => {
+    dctx.font = `bold ${t.size}px sans-serif`;
+    dctx.textAlign = 'center';
+    dctx.textBaseline = 'middle';
+    const tw = dctx.measureText(t.text).width;
+    const pad = Math.max(6, t.size / 4);
+    // 背景
+    dctx.fillStyle = 'rgba(0,0,0,0.75)';
+    dctx.fillRect(t.x - tw/2 - pad, t.y - t.size/2 - pad/2, tw + pad*2, t.size + pad);
+    // 枠
+    dctx.strokeStyle = t.color;
+    dctx.lineWidth = Math.max(2, t.size / 15);
+    dctx.strokeRect(t.x - tw/2 - pad, t.y - t.size/2 - pad/2, tw + pad*2, t.size + pad);
+    // テキスト
+    dctx.fillStyle = t.color;
+    dctx.fillText(t.text, t.x, t.y);
+  });
+  dctx.textBaseline = 'alphabetic';
+}
+
+function getTextBounds(t) {
+  dctx.font = `bold ${t.size}px sans-serif`;
+  const tw = dctx.measureText(t.text).width;
+  const pad = Math.max(6, t.size / 4);
+  return {
+    x: t.x - tw/2 - pad,
+    y: t.y - t.size/2 - pad/2,
+    w: tw + pad*2,
+    h: t.size + pad,
+  };
+}
+
+function findTextAt(pos) {
+  for (let i = texts.length - 1; i >= 0; i--) {
+    const b = getTextBounds(texts[i]);
+    if (pos.x >= b.x && pos.x <= b.x + b.w && pos.y >= b.y && pos.y <= b.y + b.h) {
+      return i;
+    }
+  }
+  return -1;
 }
 
 function applyZoom() {
@@ -1052,6 +1115,7 @@ document.getElementById('drawToggle').addEventListener('click', () => {
   document.getElementById('drawModeLabel').textContent =
     drawModeOn ? '描画ON（タップで配置・ドラッグで移動）' : '描画OFF（スクロール/ピンチ可能）';
   document.getElementById('colorPicker').style.display = drawModeOn ? 'flex' : 'none';
+  document.getElementById('stampRow').style.display = drawModeOn ? 'flex' : 'none';
   document.getElementById('drawScrollContainer').classList.toggle('draw-active', drawModeOn);
   // 描画OFFの時はcanvasがタッチを受けないようにする → スクロール可能
   drawCanvas.style.pointerEvents = drawModeOn ? 'auto' : 'none';
@@ -1064,6 +1128,41 @@ document.querySelectorAll('.color-choice').forEach(btn => {
     document.querySelectorAll('.color-choice').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     activeColor = btn.dataset.color;
+  });
+});
+
+// スタンプ（足自由・Q・D）
+function addTextStamp(text) {
+  // ビューの中央（スクロールされた表示領域の中心）にテキスト配置
+  const container = document.getElementById('drawScrollContainer');
+  const rect = drawCanvas.getBoundingClientRect();
+  const containerRect = container.getBoundingClientRect();
+  // 表示領域の中心をcanvas座標に変換
+  const viewCenterX = containerRect.left + containerRect.width / 2;
+  const viewCenterY = containerRect.top + containerRect.height / 2;
+  const scaleX = drawCanvas.width / rect.width;
+  const scaleY = drawCanvas.height / rect.height;
+  let cx = (viewCenterX - rect.left) * scaleX;
+  let cy = (viewCenterY - rect.top) * scaleY;
+  // はみ出し防止
+  cx = Math.max(100, Math.min(drawCanvas.width - 100, cx));
+  cy = Math.max(50, Math.min(drawCanvas.height - 50, cy));
+  const size = Math.max(40, Math.round(drawCanvas.width / 25));
+  texts.push({ x: cx, y: cy, text, size, color: '#ffff00' });
+  redrawAll();
+}
+
+document.querySelectorAll('.stamp-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const stamp = btn.dataset.stamp;
+    if (stamp === 'Q' || stamp === 'D') {
+      const n = prompt(`${stamp === 'Q' ? '級' : '段'}の数字を入力 (例: 3)`, '');
+      if (n && n.trim()) {
+        addTextStamp(n.trim() + stamp);
+      }
+    } else {
+      addTextStamp(stamp);
+    }
   });
 });
 
@@ -1116,14 +1215,23 @@ function onPointerDown(e) {
   touchStartTime = Date.now();
   touchMoved = false;
 
-  const idx = findCircleAt(pos);
-  if (idx !== -1) {
-    // 既存の丸をつかむ → ドラッグ開始
-    draggingIndex = idx;
-    dragOffset = { x: pos.x - circles[idx].x, y: pos.y - circles[idx].y };
-  } else {
-    draggingIndex = -1;
+  // まずテキストが上に乗っているか判定（後に配置したものが優先）
+  const tIdx = findTextAt(pos);
+  if (tIdx !== -1) {
+    draggingIndex = tIdx;
+    draggingKind = 'text';
+    dragOffset = { x: pos.x - texts[tIdx].x, y: pos.y - texts[tIdx].y };
+    return;
   }
+  const cIdx = findCircleAt(pos);
+  if (cIdx !== -1) {
+    draggingIndex = cIdx;
+    draggingKind = 'circle';
+    dragOffset = { x: pos.x - circles[cIdx].x, y: pos.y - circles[cIdx].y };
+    return;
+  }
+  draggingIndex = -1;
+  draggingKind = '';
 }
 
 function onPointerMove(e) {
@@ -1136,8 +1244,13 @@ function onPointerMove(e) {
 
   if (draggingIndex !== -1) {
     e.preventDefault();
-    circles[draggingIndex].x = pos.x - dragOffset.x;
-    circles[draggingIndex].y = pos.y - dragOffset.y;
+    if (draggingKind === 'circle') {
+      circles[draggingIndex].x = pos.x - dragOffset.x;
+      circles[draggingIndex].y = pos.y - dragOffset.y;
+    } else if (draggingKind === 'text') {
+      texts[draggingIndex].x = pos.x - dragOffset.x;
+      texts[draggingIndex].y = pos.y - dragOffset.y;
+    }
     redrawAll();
   }
 }
@@ -1159,6 +1272,7 @@ function onPointerUp(e) {
   }
 
   draggingIndex = -1;
+  draggingKind = '';
   touchStartPos = null;
   touchMoved = false;
 }
@@ -1167,6 +1281,14 @@ function onPointerUp(e) {
 let lastTapTime = 0;
 let lastTapPos = null;
 function onDoubleTap(pos) {
+  // テキスト優先
+  const tIdx = findTextAt(pos);
+  if (tIdx !== -1) {
+    texts.splice(tIdx, 1);
+    redrawAll();
+    showToast('ラベルを削除しました');
+    return;
+  }
   const idx = findCircleAt(pos);
   if (idx !== -1) {
     circles.splice(idx, 1);
@@ -1201,18 +1323,20 @@ drawCanvas.addEventListener('touchstart', (e) => {
 drawCanvas.addEventListener('touchmove', onPointerMove, { passive: false });
 drawCanvas.addEventListener('touchend', onPointerUp);
 
-// Undo
+// Undo (最後に追加した丸またはテキスト)
 document.getElementById('undoDraw').addEventListener('click', () => {
-  if (circles.length === 0) return;
-  circles.pop();
-  redrawAll();
+  // 追加順を追跡していないので、textsとcirclesのうち片方が空でないなら片方を優先
+  // 簡易実装: textsがあれば先に戻す、なければcircles
+  if (texts.length > 0) { texts.pop(); redrawAll(); return; }
+  if (circles.length > 0) { circles.pop(); redrawAll(); }
 });
 
 // Clear all
 document.getElementById('clearDraw').addEventListener('click', () => {
   circles = [];
+  texts = [];
   redrawAll();
-  showToast('全ての丸を消去しました');
+  showToast('全て消去しました');
 });
 
 // Download
