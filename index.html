@@ -234,10 +234,16 @@ header p { font-size: 0.75rem; color: #888; margin-top: 2px; }
   overflow: auto; max-height: 70vh;
   border: 2px solid #333; border-radius: 8px;
   background: #111; -webkit-overflow-scrolling: touch;
+  touch-action: auto;  /* ピンチ/パンを許可 */
 }
 .draw-scroll-container.draw-active { border-color: #e94560; }
 .draw-inner {
-  transform-origin: 0 0; position: relative;
+  position: relative;
+}
+#drawCanvas {
+  display: block;
+  pointer-events: none; /* 初期状態は通過（スクロール可能） */
+  touch-action: auto;
 }
 
 .toast {
@@ -977,9 +983,11 @@ function initDrawCanvas() {
   // Reset draw mode
   drawModeOn = false;
   document.getElementById('drawToggle').classList.remove('on');
-  document.getElementById('drawModeLabel').textContent = '描画OFF（スクロール可能）';
+  document.getElementById('drawModeLabel').textContent = '描画OFF（スクロール/ピンチ可能）';
   document.getElementById('colorPicker').style.display = 'none';
   document.getElementById('drawScrollContainer').classList.remove('draw-active');
+  drawCanvas.style.pointerEvents = 'none';
+  drawCanvas.style.touchAction = 'auto';
 }
 
 function redrawAll() {
@@ -1007,10 +1015,15 @@ function redrawAll() {
 }
 
 function applyZoom() {
+  // transformではなく実CSSサイズを変更（スクロールコンテナが正しいサイズを認識できる）
   const inner = document.getElementById('drawInner');
-  inner.style.transform = `scale(${zoomScale})`;
-  inner.style.width = drawCanvas.width + 'px';
-  inner.style.height = drawCanvas.height + 'px';
+  const w = drawCanvas.width * zoomScale;
+  const h = drawCanvas.height * zoomScale;
+  drawCanvas.style.width = w + 'px';
+  drawCanvas.style.height = h + 'px';
+  inner.style.width = w + 'px';
+  inner.style.height = h + 'px';
+  inner.style.transform = 'none';
   const container = document.getElementById('drawScrollContainer');
   container.style.maxHeight = '70vh';
   document.getElementById('zoomLevel').textContent = Math.round(zoomScale * 100) + '%';
@@ -1021,9 +1034,12 @@ document.getElementById('drawToggle').addEventListener('click', () => {
   drawModeOn = !drawModeOn;
   document.getElementById('drawToggle').classList.toggle('on', drawModeOn);
   document.getElementById('drawModeLabel').textContent =
-    drawModeOn ? '描画ON（タップで配置・ドラッグで移動）' : '描画OFF（スクロール可能）';
+    drawModeOn ? '描画ON（タップで配置・ドラッグで移動）' : '描画OFF（スクロール/ピンチ可能）';
   document.getElementById('colorPicker').style.display = drawModeOn ? 'flex' : 'none';
   document.getElementById('drawScrollContainer').classList.toggle('draw-active', drawModeOn);
+  // 描画OFFの時はcanvasがタッチを受けないようにする → スクロール可能
+  drawCanvas.style.pointerEvents = drawModeOn ? 'auto' : 'none';
+  drawCanvas.style.touchAction = drawModeOn ? 'none' : 'auto';
 });
 
 // Color selection
@@ -1078,6 +1094,7 @@ function onPointerDown(e) {
 
   const idx = findCircleAt(pos);
   if (idx !== -1) {
+    // 既存の丸をつかむ → ドラッグ開始
     draggingIndex = idx;
     dragOffset = { x: pos.x - circles[idx].x, y: pos.y - circles[idx].y };
   } else {
@@ -1087,13 +1104,11 @@ function onPointerDown(e) {
 
 function onPointerMove(e) {
   if (!drawModeOn) return;
-  if (draggingIndex === -1 && touchStartPos === null) return;
+  if (!touchStartPos) return;
   const pos = getCanvasPos(e);
 
-  if (touchStartPos) {
-    const d = Math.hypot(pos.x - touchStartPos.x, pos.y - touchStartPos.y);
-    if (d > 6) touchMoved = true;
-  }
+  const d = Math.hypot(pos.x - touchStartPos.x, pos.y - touchStartPos.y);
+  if (d > 6) touchMoved = true;
 
   if (draggingIndex !== -1) {
     e.preventDefault();
@@ -1104,22 +1119,19 @@ function onPointerMove(e) {
 }
 
 function onPointerUp(e) {
-  if (!drawModeOn) {
+  if (!drawModeOn || !touchStartPos) {
     touchStartPos = null;
     draggingIndex = -1;
     return;
   }
-  const pos = touchStartPos ? getCanvasPos(e) : null;
 
-  // タップ（移動なし）で新規配置 or 既存丸削除
-  if (!touchMoved && touchStartPos && (Date.now() - touchStartTime < 500)) {
-    const idx = findCircleAt(touchStartPos);
-    if (idx === -1) {
-      // 新規配置
-      circles.push({ x: touchStartPos.x, y: touchStartPos.y, color: activeColor });
-      redrawAll();
-    }
-    // 既存丸のタップは何もしない（長押しで削除したいところだが、タップだと誤動作しやすい）
+  // タップ（ほぼ動かず、素早い）= 新規配置 or 何もしない
+  const isTap = !touchMoved && (Date.now() - touchStartTime < 800);
+
+  if (isTap && draggingIndex === -1) {
+    // 空き場所をタップ → 新規丸配置
+    circles.push({ x: touchStartPos.x, y: touchStartPos.y, color: activeColor });
+    redrawAll();
   }
 
   draggingIndex = -1;
