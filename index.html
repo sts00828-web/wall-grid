@@ -176,6 +176,24 @@ header p { font-size: 0.75rem; color: #888; margin-top: 2px; }
 }
 .color-btn.active { border-color: #fff; box-shadow: 0 0 6px rgba(255,255,255,0.5); }
 
+/* 色選択（緑/赤） */
+.color-picker {
+  display: flex; gap: 8px; margin-bottom: 8px;
+}
+.color-choice {
+  flex: 1; display: flex; align-items: center; gap: 8px;
+  padding: 10px 12px; background: #16213e;
+  border: 2px solid #333; border-radius: 8px;
+  color: #eee; font-size: 0.85rem; cursor: pointer;
+}
+.color-choice.active {
+  border-color: #e94560; background: #2a1a3e;
+}
+.color-choice .dot {
+  display: inline-block; width: 20px; height: 20px;
+  border-radius: 50%; border: 3px solid;
+}
+
 /* 描画モードトグル */
 .draw-mode-toggle {
   display: flex; align-items: center; gap: 8px;
@@ -367,40 +385,37 @@ header p { font-size: 0.75rem; color: #888; margin-top: 2px; }
     </div>
   </div>
 
-  <!-- Step 4: 手描き編集 -->
+  <!-- Step 4: 丸配置 -->
   <div class="section" id="step4">
     <p class="section-title">Step 5: 課題を書き込む</p>
-    <!-- 描画ON/OFF -->
+
+    <div class="instruction">
+      <strong>描画ON</strong>にしてホールドをタップ → 丸が置かれる<br>
+      丸を<strong>ドラッグで移動</strong> ／ <strong>ダブルタップで削除</strong><br>
+      <span style="color:#4ecca3">緑=スタート/ゴール</span>、<span style="color:#ff6b6b">赤=中間ホールド</span>
+    </div>
+
+    <!-- 描画ON/OFFトグル -->
     <div class="draw-mode-toggle">
       <div class="toggle-switch" id="drawToggle">
         <div class="knob"></div>
       </div>
       <div>
         <div class="draw-mode-label" id="drawModeLabel">描画OFF（スクロール可能）</div>
-        <div class="draw-mode-hint">ONにすると画像に書き込めます</div>
+        <div class="draw-mode-hint">ONで丸配置・ドラッグ移動モード</div>
       </div>
     </div>
 
-    <!-- ツールバー（描画ON時のみ表示） -->
-    <div class="draw-toolbar" id="drawToolbar" style="display:none">
-      <div class="tool-row">
-        <button class="tool-btn active" data-tool="circle" title="丸">⭕</button>
-        <button class="tool-btn" data-tool="pen" title="ペン">✏️</button>
-        <button class="tool-btn" data-tool="line" title="直線">📏</button>
-        <button class="tool-btn" data-tool="text" title="テキスト">T</button>
-        <button class="tool-btn" data-tool="eraser" title="消しゴム">🗑️</button>
-      </div>
-      <div class="tool-row">
-        <span style="font-size:0.75rem;color:#888">色:</span>
-        <button class="color-btn active" data-color="#ff0000" style="background:#ff0000"></button>
-        <button class="color-btn" data-color="#00ff00" style="background:#00ff00"></button>
-        <button class="color-btn" data-color="#ffff00" style="background:#ffff00"></button>
-        <button class="color-btn" data-color="#00ffff" style="background:#00ffff"></button>
-        <button class="color-btn" data-color="#ff00ff" style="background:#ff00ff"></button>
-        <button class="color-btn" data-color="#ffffff" style="background:#ffffff"></button>
-        <span style="font-size:0.75rem;color:#888;margin-left:8px">太さ:</span>
-        <input type="range" id="drawSize" min="2" max="12" value="4" style="width:60px;vertical-align:middle">
-      </div>
+    <!-- 色選択 -->
+    <div class="color-picker" id="colorPicker" style="display:none">
+      <button class="color-choice active" data-color="green">
+        <span class="dot" style="border-color:#00ff00"></span>
+        <span>緑（スタート/ゴール）</span>
+      </button>
+      <button class="color-choice" data-color="red">
+        <span class="dot" style="border-color:#ff0000"></span>
+        <span>赤（中間）</span>
+      </button>
     </div>
 
     <!-- ズームコントロール -->
@@ -419,7 +434,7 @@ header p { font-size: 0.75rem; color: #888; margin-top: 2px; }
     </div>
 
     <div style="display:flex;gap:8px;margin-top:12px">
-      <button class="btn btn-secondary" id="undoDraw" style="flex:1;margin-top:0">↩ 戻す</button>
+      <button class="btn btn-secondary" id="undoDraw" style="flex:1;margin-top:0">↩ 1つ戻す</button>
       <button class="btn btn-secondary" id="clearDraw" style="flex:1;margin-top:0">全消去</button>
     </div>
 
@@ -909,48 +924,86 @@ function showToast(msg) {
   setTimeout(() => t.classList.remove('show'), 2000);
 }
 
-// ===== Step 4: Draw on grid =====
+// ===== Step 4: Circle placement tool =====
 const drawCanvas = document.getElementById('drawCanvas');
 const dctx = drawCanvas.getContext('2d');
-let drawTool = 'circle';
-let drawColor = '#ff0000';
-let drawSize = 4;
-let drawHistory = [];     // snapshots for undo
-let isDrawing = false;
-let drawStart = null;     // for line/circle start point
-let baseImage = null;     // grid image as base
 let drawModeOn = false;
 let zoomScale = 1;
+let activeColor = 'green'; // 'green' | 'red'
+let circles = [];          // {x, y, color}
+let draggingIndex = -1;
+let dragOffset = { x: 0, y: 0 };
+let touchStartPos = null;
+let touchStartTime = 0;
+let touchMoved = false;
+let baseImg = null;        // HTMLImageElement of grid result (image portion only)
+
+function getCircleRadius() {
+  // Size = 1マスの1/3 くらい（小さめのホールドも囲める）
+  const [c0, c1] = state.corners;
+  const cellW = (c1.x - c0.x) / state.gridCols;
+  const cellH = (c1.y - c0.y) / state.gridRows;
+  return Math.round(Math.min(cellW, cellH) * 0.45);
+}
+
+function getLineWidth() {
+  return Math.max(3, Math.round(drawCanvas.width / 300));
+}
 
 function initDrawCanvas() {
   const img = state.image;
-
   drawCanvas.width = img.width;
   drawCanvas.height = img.height;
 
-  // Draw the result canvas content (just the image part, no legend)
-  dctx.drawImage(resultCanvas, 0, 0, img.width, img.height, 0, 0, img.width, img.height);
+  // Cache base (grid image) as HTMLImageElement for fast redraws
+  baseImg = new Image();
+  baseImg.onload = () => redrawAll();
+  // Extract only the image portion (no legend) from resultCanvas
+  const tmp = document.createElement('canvas');
+  tmp.width = img.width;
+  tmp.height = img.height;
+  tmp.getContext('2d').drawImage(resultCanvas, 0, 0, img.width, img.height, 0, 0, img.width, img.height);
+  baseImg.src = tmp.toDataURL('image/png');
 
-  // Save base
-  baseImage = dctx.getImageData(0, 0, drawCanvas.width, drawCanvas.height);
-  drawHistory = [drawCanvas.toDataURL()];
-
-  // Initial display: fit to container width
+  circles = [];
   drawCanvas.style.width = img.width + 'px';
   drawCanvas.style.height = img.height + 'px';
 
-  // Calculate initial zoom to fit
+  // Fit to container
   const container = document.getElementById('drawScrollContainer');
-  const fitScale = container.clientWidth / img.width;
-  zoomScale = fitScale;
+  zoomScale = container.clientWidth / img.width;
   applyZoom();
 
   // Reset draw mode
   drawModeOn = false;
   document.getElementById('drawToggle').classList.remove('on');
   document.getElementById('drawModeLabel').textContent = '描画OFF（スクロール可能）';
-  document.getElementById('drawToolbar').style.display = 'none';
+  document.getElementById('colorPicker').style.display = 'none';
   document.getElementById('drawScrollContainer').classList.remove('draw-active');
+}
+
+function redrawAll() {
+  if (!baseImg || !baseImg.complete) return;
+  dctx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
+  dctx.drawImage(baseImg, 0, 0);
+
+  const r = getCircleRadius();
+  const lw = getLineWidth();
+  circles.forEach((c, i) => {
+    const stroke = c.color === 'green' ? '#00ff00' : '#ff0000';
+    // 外側の黒縁
+    dctx.beginPath();
+    dctx.arc(c.x, c.y, r, 0, Math.PI * 2);
+    dctx.strokeStyle = 'rgba(0,0,0,0.8)';
+    dctx.lineWidth = lw + 2;
+    dctx.stroke();
+    // 色付き円
+    dctx.beginPath();
+    dctx.arc(c.x, c.y, r, 0, Math.PI * 2);
+    dctx.strokeStyle = stroke;
+    dctx.lineWidth = lw;
+    dctx.stroke();
+  });
 }
 
 function applyZoom() {
@@ -958,7 +1011,6 @@ function applyZoom() {
   inner.style.transform = `scale(${zoomScale})`;
   inner.style.width = drawCanvas.width + 'px';
   inner.style.height = drawCanvas.height + 'px';
-  // Container needs to know actual size for scrolling
   const container = document.getElementById('drawScrollContainer');
   container.style.maxHeight = '70vh';
   document.getElementById('zoomLevel').textContent = Math.round(zoomScale * 100) + '%';
@@ -967,207 +1019,167 @@ function applyZoom() {
 // Draw mode toggle
 document.getElementById('drawToggle').addEventListener('click', () => {
   drawModeOn = !drawModeOn;
-  const toggle = document.getElementById('drawToggle');
-  const label = document.getElementById('drawModeLabel');
-  const toolbar = document.getElementById('drawToolbar');
-  const container = document.getElementById('drawScrollContainer');
-  toggle.classList.toggle('on', drawModeOn);
-  if (drawModeOn) {
-    label.textContent = '描画ON（書き込み中）';
-    toolbar.style.display = 'block';
-    container.classList.add('draw-active');
-  } else {
-    label.textContent = '描画OFF（スクロール可能）';
-    toolbar.style.display = 'none';
-    container.classList.remove('draw-active');
-  }
-});
-
-// Zoom controls
-document.getElementById('zoomIn').addEventListener('click', () => {
-  zoomScale = Math.min(4, zoomScale * 1.3);
-  applyZoom();
-});
-document.getElementById('zoomOut').addEventListener('click', () => {
-  zoomScale = Math.max(0.3, zoomScale / 1.3);
-  applyZoom();
-});
-document.getElementById('zoomFit').addEventListener('click', () => {
-  const container = document.getElementById('drawScrollContainer');
-  zoomScale = container.clientWidth / drawCanvas.width;
-  applyZoom();
-});
-
-function getDrawPos(e) {
-  const rect = drawCanvas.getBoundingClientRect();
-  const scaleX = drawCanvas.width / rect.width;
-  const scaleY = drawCanvas.height / rect.height;
-  const touch = e.touches ? e.touches[0] : (e.changedTouches ? e.changedTouches[0] : e);
-  return {
-    x: (touch.clientX - rect.left) * scaleX,
-    y: (touch.clientY - rect.top) * scaleY,
-  };
-}
-
-function saveDrawState() {
-  if (drawHistory.length > 30) drawHistory.shift();
-  drawHistory.push(drawCanvas.toDataURL());
-}
-
-// Tool selection
-document.querySelectorAll('.tool-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    drawTool = btn.dataset.tool;
-    if (drawTool === 'text') {
-      drawCanvas.style.cursor = 'text';
-    } else if (drawTool === 'eraser') {
-      drawCanvas.style.cursor = 'crosshair';
-    } else {
-      drawCanvas.style.cursor = 'crosshair';
-    }
-  });
+  document.getElementById('drawToggle').classList.toggle('on', drawModeOn);
+  document.getElementById('drawModeLabel').textContent =
+    drawModeOn ? '描画ON（タップで配置・ドラッグで移動）' : '描画OFF（スクロール可能）';
+  document.getElementById('colorPicker').style.display = drawModeOn ? 'flex' : 'none';
+  document.getElementById('drawScrollContainer').classList.toggle('draw-active', drawModeOn);
 });
 
 // Color selection
-document.querySelectorAll('.color-btn').forEach(btn => {
+document.querySelectorAll('.color-choice').forEach(btn => {
   btn.addEventListener('click', () => {
-    document.querySelectorAll('.color-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.color-choice').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
-    drawColor = btn.dataset.color;
+    activeColor = btn.dataset.color;
   });
 });
 
-document.getElementById('drawSize').addEventListener('input', (e) => {
-  drawSize = parseInt(e.target.value);
+// Zoom
+document.getElementById('zoomIn').addEventListener('click', () => {
+  zoomScale = Math.min(4, zoomScale * 1.3); applyZoom();
+});
+document.getElementById('zoomOut').addEventListener('click', () => {
+  zoomScale = Math.max(0.3, zoomScale / 1.3); applyZoom();
+});
+document.getElementById('zoomFit').addEventListener('click', () => {
+  zoomScale = document.getElementById('drawScrollContainer').clientWidth / drawCanvas.width;
+  applyZoom();
 });
 
-// Drawing events
-function onDrawStart(e) {
-  if (!drawModeOn) return; // let scroll happen
+function getCanvasPos(e) {
+  const rect = drawCanvas.getBoundingClientRect();
+  const scaleX = drawCanvas.width / rect.width;
+  const scaleY = drawCanvas.height / rect.height;
+  const pt = e.touches ? e.touches[0] : (e.changedTouches ? e.changedTouches[0] : e);
+  return {
+    x: (pt.clientX - rect.left) * scaleX,
+    y: (pt.clientY - rect.top) * scaleY,
+  };
+}
+
+function findCircleAt(pos) {
+  const r = getCircleRadius();
+  // Search from top (last placed = front)
+  for (let i = circles.length - 1; i >= 0; i--) {
+    const c = circles[i];
+    if (Math.hypot(pos.x - c.x, pos.y - c.y) <= r + 10) return i;
+  }
+  return -1;
+}
+
+function onPointerDown(e) {
+  if (!drawModeOn) return;
   e.preventDefault();
-  const pos = getDrawPos(e);
-  isDrawing = true;
-  drawStart = pos;
+  const pos = getCanvasPos(e);
+  touchStartPos = pos;
+  touchStartTime = Date.now();
+  touchMoved = false;
 
-  if (drawTool === 'pen' || drawTool === 'eraser') {
-    dctx.beginPath();
-    dctx.moveTo(pos.x, pos.y);
+  const idx = findCircleAt(pos);
+  if (idx !== -1) {
+    draggingIndex = idx;
+    dragOffset = { x: pos.x - circles[idx].x, y: pos.y - circles[idx].y };
+  } else {
+    draggingIndex = -1;
   }
 }
 
-function onDrawMove(e) {
-  if (!drawModeOn || !isDrawing) return;
+function onPointerMove(e) {
+  if (!drawModeOn) return;
+  if (draggingIndex === -1 && touchStartPos === null) return;
+  const pos = getCanvasPos(e);
+
+  if (touchStartPos) {
+    const d = Math.hypot(pos.x - touchStartPos.x, pos.y - touchStartPos.y);
+    if (d > 6) touchMoved = true;
+  }
+
+  if (draggingIndex !== -1) {
+    e.preventDefault();
+    circles[draggingIndex].x = pos.x - dragOffset.x;
+    circles[draggingIndex].y = pos.y - dragOffset.y;
+    redrawAll();
+  }
+}
+
+function onPointerUp(e) {
+  if (!drawModeOn) {
+    touchStartPos = null;
+    draggingIndex = -1;
+    return;
+  }
+  const pos = touchStartPos ? getCanvasPos(e) : null;
+
+  // タップ（移動なし）で新規配置 or 既存丸削除
+  if (!touchMoved && touchStartPos && (Date.now() - touchStartTime < 500)) {
+    const idx = findCircleAt(touchStartPos);
+    if (idx === -1) {
+      // 新規配置
+      circles.push({ x: touchStartPos.x, y: touchStartPos.y, color: activeColor });
+      redrawAll();
+    }
+    // 既存丸のタップは何もしない（長押しで削除したいところだが、タップだと誤動作しやすい）
+  }
+
+  draggingIndex = -1;
+  touchStartPos = null;
+  touchMoved = false;
+}
+
+// Double-tap / double-click to delete a circle
+let lastTapTime = 0;
+let lastTapPos = null;
+function onDoubleTap(pos) {
+  const idx = findCircleAt(pos);
+  if (idx !== -1) {
+    circles.splice(idx, 1);
+    redrawAll();
+    showToast('丸を削除しました');
+  }
+}
+
+drawCanvas.addEventListener('mousedown', onPointerDown);
+drawCanvas.addEventListener('mousemove', onPointerMove);
+drawCanvas.addEventListener('mouseup', onPointerUp);
+drawCanvas.addEventListener('dblclick', (e) => {
+  if (!drawModeOn) return;
   e.preventDefault();
-  const pos = getDrawPos(e);
-
-  if (drawTool === 'pen') {
-    dctx.strokeStyle = drawColor;
-    dctx.lineWidth = drawSize;
-    dctx.lineCap = 'round';
-    dctx.lineJoin = 'round';
-    dctx.lineTo(pos.x, pos.y);
-    dctx.stroke();
-  } else if (drawTool === 'eraser') {
-    // Restore base image in area
-    const r = drawSize * 3;
-    const sx = Math.max(0, Math.round(pos.x - r));
-    const sy = Math.max(0, Math.round(pos.y - r));
-    const sw = Math.min(drawCanvas.width - sx, r * 2);
-    const sh = Math.min(drawCanvas.height - sy, r * 2);
-    if (baseImage && sw > 0 && sh > 0) {
-      // Create temp canvas with base, copy region
-      const tmp = document.createElement('canvas');
-      tmp.width = drawCanvas.width;
-      tmp.height = drawCanvas.height;
-      const tctx = tmp.getContext('2d');
-      tctx.putImageData(baseImage, 0, 0);
-      const region = tctx.getImageData(sx, sy, sw, sh);
-      dctx.putImageData(region, sx, sy);
-    }
-  } else if (drawTool === 'circle' || drawTool === 'line') {
-    // Preview: restore last saved state and draw preview
-    const lastState = new Image();
-    lastState.src = drawHistory[drawHistory.length - 1];
-    // Simple approach: we'll draw final on end
+  onDoubleTap(getCanvasPos(e));
+});
+drawCanvas.addEventListener('touchstart', (e) => {
+  if (!drawModeOn) return;
+  const now = Date.now();
+  const pos = getCanvasPos(e);
+  if (lastTapPos && now - lastTapTime < 350 &&
+      Math.hypot(pos.x - lastTapPos.x, pos.y - lastTapPos.y) < 30) {
+    e.preventDefault();
+    onDoubleTap(pos);
+    lastTapTime = 0;
+    return;
   }
-}
-
-function onDrawEnd(e) {
-  if (!drawModeOn || !isDrawing) return;
-  isDrawing = false;
-
-  const pos = e.changedTouches ? getDrawPos(e) :
-              (e.type === 'mouseup' ? getDrawPos(e) : drawStart);
-
-  if (drawTool === 'circle') {
-    const r = Math.max(15, Math.hypot(pos.x - drawStart.x, pos.y - drawStart.y));
-    dctx.beginPath();
-    dctx.arc(drawStart.x, drawStart.y, r, 0, Math.PI * 2);
-    dctx.strokeStyle = drawColor;
-    dctx.lineWidth = drawSize;
-    dctx.stroke();
-    saveDrawState();
-  } else if (drawTool === 'line') {
-    dctx.beginPath();
-    dctx.moveTo(drawStart.x, drawStart.y);
-    dctx.lineTo(pos.x, pos.y);
-    dctx.strokeStyle = drawColor;
-    dctx.lineWidth = drawSize;
-    dctx.lineCap = 'round';
-    dctx.stroke();
-    saveDrawState();
-  } else if (drawTool === 'pen' || drawTool === 'eraser') {
-    saveDrawState();
-  } else if (drawTool === 'text') {
-    const text = prompt('テキストを入力:');
-    if (text) {
-      const textSize = Math.max(16, drawSize * 5);
-      dctx.font = `bold ${textSize}px sans-serif`;
-      dctx.fillStyle = drawColor;
-      dctx.textAlign = 'center';
-      dctx.textBaseline = 'middle';
-      // Background
-      const tw = dctx.measureText(text).width;
-      dctx.fillStyle = 'rgba(0,0,0,0.6)';
-      dctx.fillRect(drawStart.x - tw/2 - 4, drawStart.y - textSize/2 - 2, tw + 8, textSize + 4);
-      dctx.fillStyle = drawColor;
-      dctx.fillText(text, drawStart.x, drawStart.y);
-      saveDrawState();
-    }
-  }
-  drawStart = null;
-}
-
-drawCanvas.addEventListener('mousedown', onDrawStart);
-drawCanvas.addEventListener('mousemove', onDrawMove);
-drawCanvas.addEventListener('mouseup', onDrawEnd);
-drawCanvas.addEventListener('touchstart', onDrawStart, { passive: false });
-drawCanvas.addEventListener('touchmove', onDrawMove, { passive: false });
-drawCanvas.addEventListener('touchend', onDrawEnd);
+  lastTapTime = now;
+  lastTapPos = pos;
+  onPointerDown(e);
+}, { passive: false });
+drawCanvas.addEventListener('touchmove', onPointerMove, { passive: false });
+drawCanvas.addEventListener('touchend', onPointerUp);
 
 // Undo
 document.getElementById('undoDraw').addEventListener('click', () => {
-  if (drawHistory.length <= 1) return;
-  drawHistory.pop();
-  const img = new Image();
-  img.onload = () => {
-    dctx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
-    dctx.drawImage(img, 0, 0);
-  };
-  img.src = drawHistory[drawHistory.length - 1];
+  if (circles.length === 0) return;
+  circles.pop();
+  redrawAll();
 });
 
-// Clear all drawings
+// Clear all
 document.getElementById('clearDraw').addEventListener('click', () => {
-  if (!baseImage) return;
-  dctx.putImageData(baseImage, 0, 0);
-  drawHistory = [drawCanvas.toDataURL()];
-  showToast('書き込みを全消去しました');
+  circles = [];
+  redrawAll();
+  showToast('全ての丸を消去しました');
 });
 
-// Download drawn image
+// Download
 document.getElementById('downloadDraw').addEventListener('click', () => {
   drawCanvas.toBlob(blob => {
     const url = URL.createObjectURL(blob);
@@ -1182,7 +1194,7 @@ document.getElementById('downloadDraw').addEventListener('click', () => {
   }, 'image/png');
 });
 
-// Share drawn image
+// Share
 document.getElementById('shareDraw').addEventListener('click', async () => {
   try {
     const blob = await new Promise(r => drawCanvas.toBlob(r, 'image/png'));
